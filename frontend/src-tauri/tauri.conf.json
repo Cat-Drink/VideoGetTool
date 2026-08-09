@@ -23,11 +23,6 @@
         "fullscreen": false
       }
     ],
-    "trayIcon": {
-      "iconPath": "icons/icon.png",
-      "iconAsTemplate": true,
-      "tooltip": "撷风拾影"
-    },
     "security": {
       "csp": null
     }

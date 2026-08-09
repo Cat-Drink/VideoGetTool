@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+import os
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
@@ -354,8 +356,6 @@ async def verify_completed_files():
     """
     if ctx.task_item_repo is None:
         raise HTTPException(status_code=503, detail="Service not ready")
-
-    import os
 
     completed_items = ctx.task_item_repo.get_by_status(TaskStatus.COMPLETED.value)
     missing_items: list[dict] = []

@@ -1,12 +1,45 @@
-#!/usr/bin/env python3
-"""Git pre-commit 钩子 - 自动同步版本号。
+''':'
+# Git pre-commit 钩子 - 自动同步版本号。
+#
+# 双语言（polyglot）脚本：同一文件既可作为 shell 又可作为 Python 执行。
+# 兼容 Git Bash / WSL / Linux / macOS / Windows。
+#
+# 解释器查找顺序：
+#   1. 项目 conda 环境（Windows Git Bash 路径）
+#   2. 项目 conda 环境（Unix/WSL 路径）
+#   3. PATH 中的 python3 / python
+#
+# 找到解释器后，将本文件作为 Python 脚本重新执行。
 
-当 pyproject.toml 的版本号发生变化时，自动同步到其他 5 个文件并 git add。
-"""
+set -e
 
+PYTHON=""
+
+# 1) 项目 conda 环境（Windows Git Bash 路径）
+if [ -z "$PYTHON" ] && [ -x "/c/Users/cwt15/.conda/envs/xiefeng-shiying/python.exe" ]; then
+    PYTHON="/c/Users/cwt15/.conda/envs/xiefeng-shiying/python.exe"
+fi
+
+# 2) 项目 conda 环境（Unix / WSL 路径）
+if [ -z "$PYTHON" ] && [ -x "$HOME/.conda/envs/xiefeng-shiying/bin/python3" ]; then
+    PYTHON="$HOME/.conda/envs/xiefeng-shiying/bin/python3"
+fi
+
+# 3) PATH 中的 python3 / python
+if [ -z "$PYTHON" ]; then
+    PYTHON="$(command -v python3 || command -v python || true)"
+fi
+
+if [ -z "$PYTHON" ]; then
+    echo "pre-commit: 未找到 Python 解释器（已尝试 conda 环境与 PATH 中的 python3）" >&2
+    exit 1
+fi
+
+exec "$PYTHON" "$0" "$@"
+'''
 from __future__ import annotations
 
-import os
+import re
 import subprocess
 import sys
 import tomllib
@@ -39,12 +72,8 @@ def get_staged_version() -> str | None:
         if result.returncode != 0:
             return None
 
-        # 简单解析：找到 version = "x.y.z" 行
         for line in result.stdout.split("\n"):
             if line.startswith("version = "):
-                # 提取版本号
-                import re
-
                 match = re.search(r'"([0-9.]+)"', line)
                 if match:
                     return match.group(1)
@@ -64,10 +93,10 @@ def run_sync() -> bool:
             text=True,
         )
         if result.returncode != 0:
-            print(f"❌ 同步版本号失败:\n{result.stderr}", file=sys.stderr)
+            print(f"同步版本号失败:\n{result.stderr}", file=sys.stderr)
         return result.returncode == 0
     except Exception as e:
-        print(f"❌ 运行 sync_version.py 失败: {e}", file=sys.stderr)
+        print(f"运行 sync_version.py 失败: {e}", file=sys.stderr)
         return False
 
 
@@ -80,17 +109,12 @@ def git_add_synced_files() -> bool:
         "frontend/src-tauri/src/lib.rs",
         "installer.iss",
     ]
-
     try:
         for file in files_to_add:
-            subprocess.run(
-                ["git", "add", file],
-                cwd=PROJECT_ROOT,
-                capture_output=True,
-            )
+            subprocess.run(["git", "add", file], cwd=PROJECT_ROOT, capture_output=True)
         return True
     except Exception as e:
-        print(f"❌ git add 失败: {e}", file=sys.stderr)
+        print(f"git add 失败: {e}", file=sys.stderr)
         return False
 
 
@@ -104,36 +128,34 @@ def main() -> int:
             capture_output=True,
         )
         if result.returncode != 0:
-            return 0  # 不是 git 仓库，跳过
+            return 0
 
-        # 获取 pyproject.toml 的当前版本和 staged 版本
         current_version = get_current_version()
         staged_version = get_staged_version()
 
         if not current_version or not staged_version:
-            return 0  # 无法读取版本号，跳过
+            return 0
 
         if current_version == staged_version:
-            return 0  # 版本号没变，不需要同步
+            return 0
 
-        # 版本号发生了变化，执行同步
-        print(f"📝 检测到版本号变化: {staged_version} → {current_version}")
+        print(f"检测到版本号变化: {staged_version} → {current_version}")
         print("正在自动同步版本号到其他文件...\n")
 
         if not run_sync():
-            print("❌ 版本号同步失败", file=sys.stderr)
+            print("版本号同步失败", file=sys.stderr)
             return 1
 
         if not git_add_synced_files():
-            print("❌ 自动 add 文件失败", file=sys.stderr)
+            print("自动 add 文件失败", file=sys.stderr)
             return 1
 
-        print("\n✅ 版本号已同步并自动 add 到 staging")
+        print("\n版本号已同步并自动 add 到 staging")
         print("提示：你可以使用 git commit --no-verify 跳过此钩子")
         return 0
 
     except Exception as e:
-        print(f"❌ pre-commit 钩子执行失败: {e}", file=sys.stderr)
+        print(f"pre-commit 钩子执行失败: {e}", file=sys.stderr)
         return 1
 
 

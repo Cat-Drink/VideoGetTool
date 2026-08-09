@@ -87,42 +87,46 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
   lastVerifiedAt: null,
 
 	  loadTasks: async () => {
-	    set({ loading: true, error: null });
-	    try {
-	      const tasks = await api.fetchTasks();
-	      // 加载每个任务的 items
-	      const freshItems: DisplayTask[] = [];
-	      for (const task of tasks) {
-	        try {
-	          const items = await api.fetchTaskItems(task.id);
-	          freshItems.push(...items.map(mapTaskItem));
-	        } catch {
-	          // 单个任务加载失败不阻断整体
-	        }
-	      }
+    set({ loading: true, error: null });
+    try {
+      const tasks = await api.fetchTasks();
+      // 加载每个任务的 items
+      const freshItems: DisplayTask[] = [];
+      for (const task of tasks) {
+        try {
+          const items = await api.fetchTaskItems(task.id);
+          freshItems.push(...items.map(mapTaskItem));
+        } catch {
+          // 单个任务加载失败不阻断整体
+        }
+      }
 
-// 合并：以 API 数据为权威源，保留更高进度的项
-		      set((state) => {
-		        const existingMap = new Map(state.items.map((i) => [i.id, i]));
-		        const merged: DisplayTask[] = freshItems.map((fresh) => {
-		          const existing = existingMap.get(fresh.id);
-		          if (!existing) return fresh;
+      // 合并：以 API 数据为权威源，保留更高进度/终态的项，避免闪烁与状态回退
+      set((state) => {
+        const existingMap = new Map(state.items.map((i) => [i.id, i]));
+        const merged: DisplayTask[] = freshItems.map((fresh) => {
+          const existing = existingMap.get(fresh.id);
+          if (!existing) return fresh;
 
-		          // 如果 API 返回的 updated_at 比本地新，优先使用 API 数据
-		          // 如果本地进度更高且状态相同，保留本地以免闪烁
-		          if (existing.progress > fresh.progress && existing.status === fresh.status) {
-		            return existing;
-		          }
-		          return fresh;
-		        });
-	        return { items: merged.sort((a, b) => b.id - a.id), tasks, loading: false };
-	      });
-	    } catch (e) {
-	      set({ error: e instanceof Error ? e.message : "加载任务失败", loading: false });
-	    }
-	  },
+          // 已有项是终态（completed/failed）时保留，避免 API 延迟导致状态回退
+          const isTerminal = (s: api.TaskStatus) => s === "completed" || s === "failed";
+          if (isTerminal(existing.status) && !isTerminal(fresh.status)) {
+            return existing;
+          }
+          // 本地进度更高且状态相同，保留本地以免闪烁
+          if (existing.progress > fresh.progress && existing.status === fresh.status) {
+            return existing;
+          }
+          return fresh;
+        });
+        return { items: merged.sort((a, b) => b.id - a.id), tasks, loading: false };
+      });
+    } catch (e) {
+      set({ error: e instanceof Error ? e.message : "加载任务失败", loading: false });
+    }
+  },
 
-	  applyProgressUpdate: (update) => {
+  applyProgressUpdate: (update) => {
 	    set((state) => ({
 	      items: state.items.map((item) =>
 	        item.id === update.task_item_id
