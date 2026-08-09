@@ -3,15 +3,39 @@
 from __future__ import annotations
 
 import re
+import subprocess
+import sys
 from pathlib import Path
 
+_PROJECT_ROOT = Path(__file__).parent.parent
+_SCRIPT_PATH = _PROJECT_ROOT / "scripts" / "sync_version.py"
 
-# 导入脚本中的函数（需要在 PATH 中）
+
 def test_sync_version_integration(tmp_path: Path) -> None:
-    """集成测试：验证 sync_version.py 的功能。"""
-    # 这个测试应该在项目根目录运行
-    # 在实际项目中可以使用 subprocess 调用脚本
-    pass
+    """集成测试：通过 subprocess 调用 sync_version.py 的 check 模式。
+
+    验证脚本能正常启动、读取 6 个版本号文件并报告一致性。
+    """
+    result = subprocess.run(
+        [sys.executable, str(_SCRIPT_PATH), "check"],
+        cwd=_PROJECT_ROOT,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, (
+        f"sync_version.py check 失败\n" f"stdout:\n{result.stdout}\n" f"stderr:\n{result.stderr}"
+    )
+    # 检查输出中是否包含所有 6 个文件的版本号报告
+    assert "所有版本号一致" in result.stdout, f"版本号不一致:\n{result.stdout}"
+    assert "✅" in result.stdout, f"输出缺少成功标记:\n{result.stdout}"
+    # 检查版本号一致性
+    assert "Python 项目配置" in result.stdout
+    assert "FastAPI 后端版本" in result.stdout
+    assert "前端 npm 配置" in result.stdout
+    assert "Tauri 应用配置" in result.stdout
+    assert "Rust 版本获取函数" in result.stdout
+    assert "Windows 安装程序配置" in result.stdout
 
 
 def test_version_format_validation() -> None:
