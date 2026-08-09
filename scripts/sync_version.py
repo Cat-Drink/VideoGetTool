@@ -128,7 +128,10 @@ def sync_version(target_version: str) -> bool:
         except Exception as e:
             print(f"[FAIL] {config.description}: {e}", file=sys.stderr)
 
-    print(f"\nSuccessfully synced {success_count}/{len(VERSION_CONFIGS)} files to version {target_version}")
+    print(
+        f"\nSuccessfully synced {success_count}/{len(VERSION_CONFIGS)}"
+        f" files to version {target_version}"
+    )
     return success_count == len(VERSION_CONFIGS)
 
 
