@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/c/Users/cwt15/.conda/envs/xiefeng-shiying/python.exe
 """Git pre-commit 钩子 - 自动同步版本号。
 
 当 pyproject.toml 的版本号发生变化时，自动同步到其他 5 个文件并 git add。
