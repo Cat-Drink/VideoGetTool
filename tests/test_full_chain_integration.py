@@ -6,7 +6,7 @@
     → Downloader.download() → 本地文件（验证存在、非空、MP4格式）
 
 运行条件：
-    - 项目根目录存在 .test_cookie.txt 文件（已被 .gitignore 排除）
+    - 项目根目录存在 .env 文件（已被 .gitignore 排除），内含 DOUYIN_TEST_COOKIE
     - 使用 pytest -m integration 显式启用
 
 测试覆盖：
@@ -40,8 +40,8 @@ from tests.test_downloader import _insert_item, _make_downloader_with_item
 
 pytestmark = [pytest.mark.integration, pytest.mark.full_chain]
 
-# Cookie 文件路径（项目根目录，已被 .gitignore 排除）
-_COOKIE_PATH = Path(__file__).parent.parent / ".test_cookie.txt"
+# 项目根目录
+_PROJECT_ROOT = Path(__file__).parent.parent
 
 # 用户报告的图文分享短链
 _SHORT_URL_SLIDES = "https://v.douyin.com/00tC3WPkgUA/"
@@ -49,11 +49,24 @@ _SLIDES_AWEME_ID = "7668332388174388986"
 
 
 def _load_cookie() -> str | None:
-    """从 .test_cookie.txt 加载 Cookie，文件不存在时返回 None。"""
-    if not _COOKIE_PATH.exists():
+    """从 .env 文件加载 DOUYIN_TEST_COOKIE，文件不存在时返回 None。
+
+    手动解析 .env（KEY=VALUE 格式，# 开头为注释），避免引入 python-dotenv 依赖。
+    """
+    env_path = _PROJECT_ROOT / ".env"
+    if not env_path.exists():
         return None
-    cookie = _COOKIE_PATH.read_text(encoding="utf-8").strip()
-    return cookie or None
+    for line in env_path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("DOUYIN_TEST_COOKIE="):
+            cookie = line[len("DOUYIN_TEST_COOKIE=") :].strip()
+            # 去掉可选的引号包裹
+            if len(cookie) >= 2 and cookie[0] in "\"'" and cookie[-1] == cookie[0]:
+                cookie = cookie[1:-1]
+            return cookie or None
+    return None
 
 
 @pytest.fixture(scope="module")
@@ -61,7 +74,7 @@ def test_cookie() -> str:
     """返回测试 Cookie 字符串，无 Cookie 时跳过。"""
     cookie = _load_cookie()
     if cookie is None:
-        pytest.skip("未找到 .test_cookie.txt，集成测试跳过（需用户提供 Cookie）")
+        pytest.skip("未找到 .env 中的 DOUYIN_TEST_COOKIE，集成测试跳过（需用户提供 Cookie）")
     return cookie
 
 
