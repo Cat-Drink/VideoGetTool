@@ -1,0 +1,163 @@
+''':'
+# Git pre-commit 钩子 - 自动同步版本号。
+#
+# 双语言（polyglot）脚本：同一文件既可作为 shell 又可作为 Python 执行。
+# 兼容 Git Bash / WSL / Linux / macOS / Windows。
+#
+# 解释器查找顺序：
+#   1. 项目 conda 环境（Windows Git Bash 路径）
+#   2. 项目 conda 环境（Unix/WSL 路径）
+#   3. PATH 中的 python3 / python
+#
+# 找到解释器后，将本文件作为 Python 脚本重新执行。
+
+set -e
+
+PYTHON=""
+
+# 1) 项目 conda 环境（Windows Git Bash 路径）
+if [ -z "$PYTHON" ] && [ -x "/c/Users/cwt15/.conda/envs/xiefeng-shiying/python.exe" ]; then
+    PYTHON="/c/Users/cwt15/.conda/envs/xiefeng-shiying/python.exe"
+fi
+
+# 2) 项目 conda 环境（Unix / WSL 路径）
+if [ -z "$PYTHON" ] && [ -x "$HOME/.conda/envs/xiefeng-shiying/bin/python3" ]; then
+    PYTHON="$HOME/.conda/envs/xiefeng-shiying/bin/python3"
+fi
+
+# 3) PATH 中的 python3 / python
+if [ -z "$PYTHON" ]; then
+    PYTHON="$(command -v python3 || command -v python || true)"
+fi
+
+if [ -z "$PYTHON" ]; then
+    echo "pre-commit: 未找到 Python 解释器（已尝试 conda 环境与 PATH 中的 python3）" >&2
+    exit 1
+fi
+
+exec "$PYTHON" "$0" "$@"
+'''
+from __future__ import annotations
+
+import re
+import subprocess
+import sys
+import tomllib
+from pathlib import Path
+
+# 项目根目录
+PROJECT_ROOT = Path(__file__).parent.parent
+
+
+def get_current_version() -> str | None:
+    """从 pyproject.toml 读取当前版本号。"""
+    try:
+        pyproject_path = PROJECT_ROOT / "pyproject.toml"
+        with open(pyproject_path, "rb") as f:
+            data = tomllib.load(f)
+        return data["project"]["version"]
+    except Exception:
+        return None
+
+
+def get_staged_version() -> str | None:
+    """从 git index（staged）中读取 pyproject.toml 的版本号。"""
+    try:
+        result = subprocess.run(
+            ["git", "show", ":pyproject.toml"],
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            return None
+
+        for line in result.stdout.split("\n"):
+            if line.startswith("version = "):
+                match = re.search(r'"([0-9.]+)"', line)
+                if match:
+                    return match.group(1)
+        return None
+    except Exception:
+        return None
+
+
+def run_sync() -> bool:
+    """运行 sync_version.py 脚本。"""
+    try:
+        script_path = PROJECT_ROOT / "scripts" / "sync_version.py"
+        result = subprocess.run(
+            [sys.executable, str(script_path), "sync"],
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            print(f"同步版本号失败:\n{result.stderr}", file=sys.stderr)
+        return result.returncode == 0
+    except Exception as e:
+        print(f"运行 sync_version.py 失败: {e}", file=sys.stderr)
+        return False
+
+
+def git_add_synced_files() -> bool:
+    """自动 add 同步后的文件。"""
+    files_to_add = [
+        "backend/app.py",
+        "frontend/package.json",
+        "frontend/src-tauri/tauri.conf.json",
+        "frontend/src-tauri/src/lib.rs",
+        "installer.iss",
+    ]
+    try:
+        for file in files_to_add:
+            subprocess.run(["git", "add", file], cwd=PROJECT_ROOT, capture_output=True)
+        return True
+    except Exception as e:
+        print(f"git add 失败: {e}", file=sys.stderr)
+        return False
+
+
+def main() -> int:
+    """主函数。"""
+    try:
+        # 检查是否是 git 仓库
+        result = subprocess.run(
+            ["git", "rev-parse", "--git-dir"],
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+        )
+        if result.returncode != 0:
+            return 0
+
+        current_version = get_current_version()
+        staged_version = get_staged_version()
+
+        if not current_version or not staged_version:
+            return 0
+
+        if current_version == staged_version:
+            return 0
+
+        print(f"检测到版本号变化: {staged_version} → {current_version}")
+        print("正在自动同步版本号到其他文件...\n")
+
+        if not run_sync():
+            print("版本号同步失败", file=sys.stderr)
+            return 1
+
+        if not git_add_synced_files():
+            print("自动 add 文件失败", file=sys.stderr)
+            return 1
+
+        print("\n版本号已同步并自动 add 到 staging")
+        print("提示：你可以使用 git commit --no-verify 跳过此钩子")
+        return 0
+
+    except Exception as e:
+        print(f"pre-commit 钩子执行失败: {e}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

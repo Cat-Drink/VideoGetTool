@@ -67,6 +67,13 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "解析到版本号: $VERSION"
 
+      - name: 验证版本号一致性
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          echo "验证版本号与 tag 一致性..."
+          python scripts/sync_version.py validate-tag "$TAG"
+
       - name: 注入版本号到源码文件
         shell: bash
         run: |

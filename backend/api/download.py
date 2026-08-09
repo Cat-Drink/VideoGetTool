@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+import os
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
@@ -342,3 +344,46 @@ async def clear_completed():
             ctx.task_repo.delete(task_id)
 
     return {"message": f"已清除 {len(completed_items)} 个已完成任务项"}
+
+
+@router.post("/verify")
+async def verify_completed_files():
+    """校验所有已完成任务的本地文件是否存在。
+
+    遍历所有 completed 状态的任务项，检查 local_path 对应的文件是否真实存在于磁盘。
+    若文件不存在，自动将状态重置为 failed（带原因说明）。
+    返回校验结果统计。
+    """
+    if ctx.task_item_repo is None:
+        raise HTTPException(status_code=503, detail="Service not ready")
+
+    completed_items = ctx.task_item_repo.get_by_status(TaskStatus.COMPLETED.value)
+    missing_items: list[dict] = []
+    verified_count = 0
+
+    for item in completed_items:
+        if item.id is None:
+            continue
+        verified_count += 1
+        if item.local_path and os.path.isfile(item.local_path):
+            continue
+        # 文件不存在：重置为 failed
+        ctx.task_item_repo.update_status(
+            item.id,
+            TaskItemStatus.FAILED.value,
+            fail_reason="文件不存在（可能已被外部删除）",
+        )
+        missing_items.append(
+            {
+                "id": item.id,
+                "aweme_id": item.aweme_id,
+                "title": item.title,
+                "local_path": item.local_path,
+            }
+        )
+
+    return {
+        "verified_count": verified_count,
+        "missing_count": len(missing_items),
+        "missing_items": missing_items,
+    }

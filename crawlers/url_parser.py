@@ -94,6 +94,8 @@ class URLParser:
         支持识别的输入格式：
             - 抖音短链：``https://v.douyin.com/xxxxx/``
             - 抖音长链（视频）：``https://www.douyin.com/video/{aweme_id}``
+            - 抖音长链（直播回放）：``https://www.douyin.com/vsdetail/{aweme_id}``
+            - 抖音长链（合集）：``https://www.douyin.com/mix/{aweme_id}``
             - 抖音长链（主页）：``https://www.douyin.com/user/{sec_user_id}``
             - 分享口令（含中文描述 + 短链）
             - 多链接文本（取第一个）
@@ -156,7 +158,10 @@ class URLParser:
             2. 路径含 ``/video/`` 或查询参数含 ``aweme_id`` → ``'video'``
                （image_set / long_video 的最终判定依赖 v0.0.4 VideoParser 调用
                detail 接口后的结果，URLParser 统一归为 ``'video'``）
-            3. 其他 → 抛 ``InvalidURLFormatError``
+            3. 路径含 ``/vsdetail/`` → ``'video'``（直播回放/录播视频）
+            4. 路径含 ``/mix/`` 或 ``/collection/`` → ``'video'``（合集/合辑页面）
+            5. 路径含 ``/share/slides/`` → ``'video'``（图文分享/幻灯片）
+            6. 其他 → 抛 ``InvalidURLFormatError``
 
         参数:
             url: 已规范化的 URL（短链需先 follow_redirect 拿到最终 URL）。
@@ -179,7 +184,16 @@ class URLParser:
         # 规则 2：视频/图文/长视频（统一归 video）
         if "/video/" in path or "aweme_id" in query:
             return "video"
-        # 规则 3：无法识别
+        # 规则 3：直播回放/录播视频
+        if "/vsdetail/" in path:
+            return "video"
+        # 规则 4：合集/合辑页面
+        if "/mix/" in path or "/collection/" in path:
+            return "video"
+        # 规则 5：图文分享/幻灯片（iesdouyin.com/share/slides/）
+        if "/share/slides/" in path:
+            return "video"
+        # 规则 6：无法识别
         raise InvalidURLFormatError(f"无法识别的抖音链接类型: {url}")
 
     @staticmethod
@@ -189,6 +203,9 @@ class URLParser:
         支持两种格式（查询参数优先）：
             - 查询参数：``?aweme_id={aweme_id}``
             - 路径形式：``/video/{aweme_id}`` 或 ``/share/video/{aweme_id}``
+            - 路径形式：``/vsdetail/{aweme_id}``（直播回放）
+            - 路径形式：``/mix/{aweme_id}`` 或 ``/collection/{aweme_id}``（合集）
+            - 路径形式：``/share/slides/{aweme_id}``（图文分享）
 
         参数:
             url: 已规范化的 URL。
@@ -204,10 +221,14 @@ class URLParser:
         query = parse_qs(parsed.query or "")
         if "aweme_id" in query and query["aweme_id"]:
             return query["aweme_id"][0]
-        # 路径形式：取 /video/ 后的段
+        # 路径形式：取 /video/ /vsdetail/ /mix/ /collection/ /share/slides/ 后的段
         path_parts = (parsed.path or "").split("/")
         for i, part in enumerate(path_parts):
-            if part == "video" and i + 1 < len(path_parts) and path_parts[i + 1]:
+            if (
+                part in ("video", "vsdetail", "mix", "collection", "slides")
+                and i + 1 < len(path_parts)
+                and path_parts[i + 1]
+            ):
                 return path_parts[i + 1]
         return None
 
@@ -285,6 +306,13 @@ class URLParser:
             3. ``identify_type`` 识别类型
             4. 根据类型从 URL 提取 ``aweme_id`` 或 ``sec_user_id``
             5. 构造并返回 ``ParsedURL``
+
+        支持的长链路径类型：
+            - ``/video/{aweme_id}`` — 普通视频
+            - ``/vsdetail/{aweme_id}`` — 直播回放/录播视频（可能需灯牌等级）
+            - ``/mix/{aweme_id}`` 或 ``/collection/{aweme_id}`` — 合集/合辑页面
+               （目前仅解析合集页的首个视频 aweme_id，完整合集解析需额外 API 调用）
+            - ``/user/{sec_user_id}`` — 用户主页
 
         参数:
             text: 用户粘贴的原始文本，可能含分享口令、短链、长链。

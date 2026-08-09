@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from "react";
+import { useEffect, useCallback, useRef } from "react";
 import { Search, RefreshCw } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -18,8 +18,10 @@ export default function DownloadPage() {
     items, loading, error,
     loadTasks, applyProgressUpdate,
     pauseItem, resumeItem, retryItem, retryAllFailed, pauseAll, resumeAll, clearCompleted,
+    verifyFiles,
   } = useTaskStore();
   const { addToast } = useToastStore();
+  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const handleDeleteItem = async (itemId: number) => {
     try {
@@ -49,6 +51,30 @@ export default function DownloadPage() {
   );
 
   const { connected } = useWebSocket(onWsMessage);
+
+  // WebSocket 断开时降级为轮询 REST API（每 2 秒）
+  useEffect(() => {
+    if (connected) {
+      // 已连接，清除轮询定时器
+      if (pollTimerRef.current) {
+        clearInterval(pollTimerRef.current);
+        pollTimerRef.current = null;
+      }
+    } else {
+      // 未连接，启动轮询（除非已有定时器）
+      if (!pollTimerRef.current) {
+        pollTimerRef.current = setInterval(() => {
+          loadTasks();
+        }, 2000);
+      }
+    }
+    return () => {
+      if (pollTimerRef.current) {
+        clearInterval(pollTimerRef.current);
+        pollTimerRef.current = null;
+      }
+    };
+  }, [connected, loadTasks]);
 
   // 过滤
   const filtered = items.filter(
@@ -103,6 +129,18 @@ export default function DownloadPage() {
         {stats.failed > 0 && (
           <Button variant="ghost" size="sm" className="text-warning" onClick={retryAllFailed}>
             全部失败重试
+          </Button>
+        )}
+        {stats.completed > 0 && (
+          <Button variant="ghost" size="sm" onClick={async () => {
+            const result = await verifyFiles();
+            if (result.missing_count > 0) {
+              addToast(`发现 ${result.missing_count} 个文件缺失，已标记为失败`, "warning");
+            } else {
+              addToast("所有已完成文件均存在", "success");
+            }
+          }}>
+            校验文件
           </Button>
         )}
         <div className="flex-1" />

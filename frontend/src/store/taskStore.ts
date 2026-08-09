@@ -54,6 +54,8 @@ interface TaskStore {
   loading: boolean;
   /** 错误信息 */
   error: string | null;
+  /** 上次校验时间 */
+  lastVerifiedAt: string | null;
 
   /** 从 API 加载任务数据 */
   loadTasks: () => Promise<void>;
@@ -73,6 +75,8 @@ interface TaskStore {
   resumeAll: () => Promise<void>;
   /** 清空已完成 */
   clearCompleted: () => Promise<void>;
+  /** 校验已完成文件是否存在 */
+  verifyFiles: () => Promise<{ missing_count: number }>;
 }
 
 export const useTaskStore = create<TaskStore>((set, get) => ({
@@ -80,48 +84,49 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
   tasks: [],
   loading: false,
   error: null,
+  lastVerifiedAt: null,
 
 	  loadTasks: async () => {
-	    set({ loading: true, error: null });
-	    try {
-	      const tasks = await api.fetchTasks();
-	      // 加载每个任务的 items
-	      const freshItems: DisplayTask[] = [];
-	      for (const task of tasks) {
-	        try {
-	          const items = await api.fetchTaskItems(task.id);
-	          freshItems.push(...items.map(mapTaskItem));
-	        } catch {
-	          // 单个任务加载失败不阻断整体
-	        }
-	      }
+    set({ loading: true, error: null });
+    try {
+      const tasks = await api.fetchTasks();
+      // 加载每个任务的 items
+      const freshItems: DisplayTask[] = [];
+      for (const task of tasks) {
+        try {
+          const items = await api.fetchTaskItems(task.id);
+          freshItems.push(...items.map(mapTaskItem));
+        } catch {
+          // 单个任务加载失败不阻断整体
+        }
+      }
 
-	      // 合并：已存在的 completed/failed 项保留，更高进度的项保留
-	      set((state) => {
-	        const existingMap = new Map(state.items.map((i) => [i.id, i]));
-	        const merged: DisplayTask[] = freshItems.map((fresh) => {
-	          const existing = existingMap.get(fresh.id);
-	          if (!existing) return fresh;
+      // 合并：以 API 数据为权威源，保留更高进度/终态的项，避免闪烁与状态回退
+      set((state) => {
+        const existingMap = new Map(state.items.map((i) => [i.id, i]));
+        const merged: DisplayTask[] = freshItems.map((fresh) => {
+          const existing = existingMap.get(fresh.id);
+          if (!existing) return fresh;
 
-	          // 如果已有项是终态（completed/failed），且新的不是或一样，保留已有
-	          const isTerminal = (s: api.TaskStatus) => s === "completed" || s === "failed";
-	          if (isTerminal(existing.status) && !isTerminal(fresh.status)) {
-	            return existing;
-	          }
-	          // 如果已有项进度更高，保留已有
-	          if (existing.progress > fresh.progress && existing.status === fresh.status) {
-	            return existing;
-	          }
-	          return fresh;
-	        });
-	        return { items: merged, tasks, loading: false };
-	      });
-	    } catch (e) {
-	      set({ error: e instanceof Error ? e.message : "加载任务失败", loading: false });
-	    }
-	  },
+          // 已有项是终态（completed/failed）时保留，避免 API 延迟导致状态回退
+          const isTerminal = (s: api.TaskStatus) => s === "completed" || s === "failed";
+          if (isTerminal(existing.status) && !isTerminal(fresh.status)) {
+            return existing;
+          }
+          // 本地进度更高且状态相同，保留本地以免闪烁
+          if (existing.progress > fresh.progress && existing.status === fresh.status) {
+            return existing;
+          }
+          return fresh;
+        });
+        return { items: merged.sort((a, b) => b.id - a.id), tasks, loading: false };
+      });
+    } catch (e) {
+      set({ error: e instanceof Error ? e.message : "加载任务失败", loading: false });
+    }
+  },
 
-	  applyProgressUpdate: (update) => {
+  applyProgressUpdate: (update) => {
 	    set((state) => ({
 	      items: state.items.map((item) =>
 	        item.id === update.task_item_id
@@ -165,19 +170,39 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
 
   retryItem: async (itemId) => {
     try {
+      // 先本地立即更新状态为 pending，进度置 0，提升用户体验
+      set((state) => ({
+        items: state.items.map((item) =>
+          item.id === itemId
+            ? { ...item, status: "pending", progress: 0, downloadedBytes: 0, totalBytes: 0 }
+            : item,
+        ),
+      }));
       await api.retryDownload(itemId);
-      await get().loadTasks();
+      // 不立即 loadTasks，等待 WebSocket 推送更新
+      // 但如果 WebSocket 断开，3 秒后会由轮询机制自动刷新
     } catch (e) {
       console.error("重新执行失败:", e);
+      // 失败时还原真实状态
+      await get().loadTasks();
     }
   },
 
   retryAllFailed: async () => {
     try {
+      // 本地立即将所有 failed 项置为 pending
+      set((state) => ({
+        items: state.items.map((item) =>
+          item.status === "failed"
+            ? { ...item, status: "pending", progress: 0, downloadedBytes: 0, totalBytes: 0 }
+            : item,
+        ),
+      }));
       await api.retryAllFailed();
-      await get().loadTasks();
+      // 等待 WebSocket 推送或轮询更新
     } catch (e) {
       console.error("全部失败重试失败:", e);
+      await get().loadTasks();
     }
   },
 
@@ -205,6 +230,21 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       await get().loadTasks();
     } catch (e) {
       console.error("清空失败:", e);
+    }
+  },
+
+  verifyFiles: async () => {
+    try {
+      const result = await api.verifyCompletedFiles();
+      set({ lastVerifiedAt: new Date().toISOString() });
+      // 如果有缺失文件，刷新列表以更新状态
+      if (result.missing_count > 0) {
+        await get().loadTasks();
+      }
+      return result;
+    } catch (e) {
+      console.error("文件校验失败:", e);
+      return { missing_count: 0 };
     }
   },
 }));

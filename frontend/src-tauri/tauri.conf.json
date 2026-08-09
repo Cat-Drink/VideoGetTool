@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "撷风拾影",
-  "version": "0.3.0",
+  "version": "0.3.2",
   "identifier": "com.cwt15.xiefeng-shiying",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -23,11 +23,6 @@
         "fullscreen": false
       }
     ],
-    "trayIcon": {
-      "iconPath": "icons/icon.png",
-      "iconAsTemplate": true,
-      "tooltip": "撷风拾影"
-    },
     "security": {
       "csp": null
     }

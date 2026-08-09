@@ -136,16 +136,39 @@ export async function clearCompleted(): Promise<{ message: string }> {
   return request("/download/clear-completed", { method: "POST" });
 }
 
+export async function verifyCompletedFiles(): Promise<{ verified_count: number; missing_count: number; missing_items: { id: number; aweme_id: string | null; title: string | null; local_path: string | null }[] }> {
+  return request("/download/verify", { method: "POST" });
+}
+
 // ============ 爬虫 API ============
 
-export async function parseUrls(urls: string[]): Promise<any[]> {
+/** 后端 /crawler/parse 与 /crawler/fetch-home 返回的解析结果项 */
+export interface ParseResult {
+  url: string;
+  title?: string;
+  author?: string;
+  type?: "video" | "image_set" | "long_video" | "user_home";
+  aweme_id?: string;
+  cover_url?: string;
+  duration?: string;
+  image_count?: number;
+  no_watermark_url?: string;
+  image_urls?: string[];
+  publish_time?: string;
+  error?: string;
+}
+
+export async function parseUrls(urls: string[]): Promise<ParseResult[]> {
   return request("/crawler/parse", {
     method: "POST",
     body: JSON.stringify({ urls }),
   });
 }
 
-export async function fetchHome(url: string, maxItems: number = 50): Promise<{ items: any[]; has_more: boolean; total: number | null }> {
+export async function fetchHome(
+  url: string,
+  maxItems: number = 50,
+): Promise<{ items: ParseResult[]; has_more: boolean; total: number | null }> {
   return request("/crawler/fetch-home", {
     method: "POST",
     body: JSON.stringify({ url, max_items: maxItems, offset: 0 }),

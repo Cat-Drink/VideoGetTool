@@ -301,7 +301,7 @@ class VideoParser:
         """
         video_type = cls._detect_video_type(detail)
         if video_type == "image_set":
-            no_watermark_url: str | None = None
+            no_watermark_url = cls._extract_no_watermark_url(detail)
             image_urls = cls._extract_image_urls(detail)
             duration: str | None = None
         else:

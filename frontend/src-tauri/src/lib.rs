@@ -3,7 +3,7 @@ use std::sync::Mutex;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
-    Manager,
+    Manager, include_image,
 };
 use tauri_plugin_shell::process::CommandChild;
 use tauri_plugin_shell::ShellExt;
@@ -26,7 +26,7 @@ fn open_link(url: String) -> Result<(), String> {
 /// 获取应用版本号
 #[tauri::command]
 fn get_app_version() -> String {
-    "0.3.0".to_string()
+    "0.3.2".to_string()
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -36,14 +36,25 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_window_state::Builder::default().build())
+        .on_window_event(|window, event| {
+            // 拦截窗口关闭事件：阻止默认关闭行为，改为隐藏到系统托盘
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                let _ = window.hide();
+            }
+        })
         .setup(|app| {
             // 构建托盘菜单
             let show_item = MenuItem::with_id(app, "show", "显示窗口", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
 
-            // 构建托盘图标
+            // 构建托盘图标（使用项目图标，避免默认透明图标）
+            let icon = include_image!("icons/icon.ico");
+
+            // 构建托盘图标（使用唯一 ID 避免重复）
             let _tray = TrayIconBuilder::new()
+                .icon(icon)
                 .menu(&menu)
                 .tooltip("撷风拾影")
                 .on_menu_event(|app, event| {

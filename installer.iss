@@ -28,7 +28,7 @@
 ; v0.2.1：ISPP 守卫支持 CI 注入版本号
 ; 本地编译用默认值 0.2.0；CI 用 ISCC /DMyAppVersion=<tag版本> 覆盖
 #ifndef MyAppVersion
-  #define MyAppVersion "0.3.0"
+  #define MyAppVersion "0.3.2"
 #endif
 #define MyAppPublisher "撷风拾影 Contributors"
 #define MyAppExeName "XieFengShiYing.exe"
