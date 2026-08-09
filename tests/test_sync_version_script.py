@@ -27,15 +27,15 @@ def test_sync_version_integration(tmp_path: Path) -> None:
         f"sync_version.py check 失败\n" f"stdout:\n{result.stdout}\n" f"stderr:\n{result.stderr}"
     )
     # 检查输出中是否包含所有 6 个文件的版本号报告
-    assert "所有版本号一致" in result.stdout, f"版本号不一致:\n{result.stdout}"
-    assert "✅" in result.stdout, f"输出缺少成功标记:\n{result.stdout}"
+    assert "all versions consistent" in result.stdout, f"版本号不一致:\n{result.stdout}"
+    assert "[OK]" in result.stdout, f"输出缺少成功标记:\n{result.stdout}"
     # 检查版本号一致性
-    assert "Python 项目配置" in result.stdout
-    assert "FastAPI 后端版本" in result.stdout
-    assert "前端 npm 配置" in result.stdout
-    assert "Tauri 应用配置" in result.stdout
-    assert "Rust 版本获取函数" in result.stdout
-    assert "Windows 安装程序配置" in result.stdout
+    assert "pyproject.toml" in result.stdout
+    assert "backend/app.py" in result.stdout
+    assert "frontend/package.json" in result.stdout
+    assert "frontend/src-tauri/tauri.conf.json" in result.stdout
+    assert "frontend/src-tauri/src/lib.rs" in result.stdout
+    assert "installer.iss" in result.stdout
 
 
 def test_version_format_validation() -> None:
@@ -164,12 +164,12 @@ class TestVersionConsistency:
     def test_all_versions_match(self) -> None:
         """测试：所有版本号都匹配。"""
         versions = {
-            "Python 项目配置": "0.3.2",
-            "FastAPI 后端版本": "0.3.2",
-            "前端 npm 配置": "0.3.2",
-            "Tauri 应用配置": "0.3.2",
-            "Rust 版本获取函数": "0.3.2",
-            "Windows 安装程序配置": "0.3.2",
+            "pyproject.toml": "0.3.2",
+            "backend/app.py": "0.3.2",
+            "frontend/package.json": "0.3.2",
+            "frontend/src-tauri/tauri.conf.json": "0.3.2",
+            "frontend/src-tauri/src/lib.rs": "0.3.2",
+            "installer.iss": "0.3.2",
         }
 
         valid_versions = {v for v in versions.values() if v is not None}
@@ -179,12 +179,12 @@ class TestVersionConsistency:
     def test_versions_mismatch(self) -> None:
         """测试：版本号不匹配。"""
         versions = {
-            "Python 项目配置": "0.3.2",
-            "FastAPI 后端版本": "0.3.2",
-            "前端 npm 配置": "0.3.1",  # 不匹配
-            "Tauri 应用配置": "0.3.2",
-            "Rust 版本获取函数": "0.3.2",
-            "Windows 安装程序配置": "0.3.2",
+            "pyproject.toml": "0.3.2",
+            "backend/app.py": "0.3.2",
+            "frontend/package.json": "0.3.1",  # 不匹配
+            "frontend/src-tauri/tauri.conf.json": "0.3.2",
+            "frontend/src-tauri/src/lib.rs": "0.3.2",
+            "installer.iss": "0.3.2",
         }
 
         valid_versions = {v for v in versions.values() if v is not None}
@@ -193,12 +193,12 @@ class TestVersionConsistency:
     def test_version_with_none(self) -> None:
         """测试：某个版本号未找到。"""
         versions = {
-            "Python 项目配置": "0.3.2",
-            "FastAPI 后端版本": None,  # 未找到
-            "前端 npm 配置": "0.3.2",
-            "Tauri 应用配置": "0.3.2",
-            "Rust 版本获取函数": "0.3.2",
-            "Windows 安装程序配置": "0.3.2",
+            "pyproject.toml": "0.3.2",
+            "backend/app.py": None,  # 未找到
+            "frontend/package.json": "0.3.2",
+            "frontend/src-tauri/tauri.conf.json": "0.3.2",
+            "frontend/src-tauri/src/lib.rs": "0.3.2",
+            "installer.iss": "0.3.2",
         }
 
         valid_versions = {v for v in versions.values() if v is not None}
