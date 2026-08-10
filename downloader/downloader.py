@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
 import sqlite3
 import time
@@ -365,12 +366,13 @@ class Downloader:
             final_path: 最终文件路径
 
         Returns:
-            最终文件路径字符串
+            规范化后的最终文件绝对路径字符串
         """
         if final_path.exists():
             final_path.unlink()
         part_path.rename(final_path)
-        return str(final_path)
+        # 规范化路径：转换为绝对路径并统一正斜杠，解决 Windows 路径问题
+        return os.path.normpath(os.path.abspath(str(final_path)))
 
     # === 分片下载 ===
 
@@ -427,7 +429,7 @@ class Downloader:
             final_path: 最终文件路径
 
         Returns:
-            最终文件路径字符串
+            规范化后的最终文件绝对路径字符串
         """
         if final_path.exists():
             final_path.unlink()
@@ -443,7 +445,7 @@ class Downloader:
         for part_path in part_paths:
             if part_path.exists():
                 part_path.unlink()
-        return str(final_path)
+        return os.path.normpath(os.path.abspath(str(final_path)))
 
     async def _download_segmented(
         self,
@@ -1065,6 +1067,7 @@ class Downloader:
                 return DownloadResult(success=False, error=reason)
 
         # 全部成功
-        self._mark_status(task_item.id, "completed", local_path=str(target_dir))
-        logger.info("图集下载完成 task_item id=%s path=%s", task_item.id, target_dir)
-        return DownloadResult(success=True, local_path=str(target_dir))
+        local_path = os.path.normpath(os.path.abspath(str(target_dir)))
+        self._mark_status(task_item.id, "completed", local_path=local_path)
+        logger.info("图集下载完成 task_item id=%s path=%s", task_item.id, local_path)
+        return DownloadResult(success=True, local_path=local_path)
