@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import os
+import tempfile
+from pathlib import Path
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -310,3 +314,217 @@ class TestClearCompleted:
         assert item.status == "downloading"
         assert item.downloaded_bytes == 97
         assert item.total_bytes == 100
+
+
+class TestVerifyCompletedFiles:
+    """文件校验 API 测试。"""
+
+    def test_verify_all_files_exist(self, api_client, memory_db):
+        """所有文件存在时校验通过，无 missing_items。"""
+        task_repo = TaskRepository(memory_db)
+        item_repo = TaskItemRepository(memory_db)
+
+        tid = task_repo.create(
+            Task(
+                id=None,
+                source_type="single",
+                source_url="x",
+                status="completed",
+                download_dir="/tmp",
+            )
+        )
+        # 创建一个临时文件用于校验
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as f:
+            f.write(b"fake video content")
+            temp_path = f.name
+
+        try:
+            item_repo.create(
+                TaskItem(
+                    id=None,
+                    task_id=tid,
+                    aweme_id="v1",
+                    url="http://x/v1",
+                    type="video",
+                    status="completed",
+                    local_path=temp_path,
+                )
+            )
+
+            resp = api_client.post("/api/download/verify")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["verified_count"] == 1
+            assert data["missing_count"] == 0
+            assert data["missing_items"] == []
+        finally:
+            os.unlink(temp_path)
+
+    def test_verify_file_missing(self, api_client, memory_db):
+        """文件不存在时标记为 missing 并置为 failed。"""
+        task_repo = TaskRepository(memory_db)
+        item_repo = TaskItemRepository(memory_db)
+
+        tid = task_repo.create(
+            Task(
+                id=None,
+                source_type="single",
+                source_url="x",
+                status="completed",
+                download_dir="/tmp",
+            )
+        )
+        item_id = item_repo.create(
+            TaskItem(
+                id=None,
+                task_id=tid,
+                aweme_id="v1",
+                url="http://x/v1",
+                type="video",
+                status="completed",
+                local_path="C:/nonexistent/path/file.mp4",
+            )
+        )
+
+        resp = api_client.post("/api/download/verify")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["verified_count"] == 1
+        assert data["missing_count"] == 1
+        assert len(data["missing_items"]) == 1
+        assert data["missing_items"][0]["id"] == item_id
+
+        # 验证状态已更新为 failed
+        item = item_repo.get(item_id)
+        assert item.status == "failed"
+        assert "文件不存在" in (item.fail_reason or "")
+
+    def test_verify_with_normalized_path(self, api_client, memory_db):
+        """路径规范化后能找到文件（混合正反斜杠路径）。"""
+        task_repo = TaskRepository(memory_db)
+        item_repo = TaskItemRepository(memory_db)
+
+        tid = task_repo.create(
+            Task(
+                id=None,
+                source_type="single",
+                source_url="x",
+                status="completed",
+                download_dir="/tmp",
+            )
+        )
+        # 创建临时文件
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as f:
+            f.write(b"fake video content")
+            temp_path = f.name
+
+        try:
+            # 用反斜杠路径存储（Windows 常见问题）
+            win_style_path = temp_path.replace("/", "\\")
+            item_repo.create(
+                TaskItem(
+                    id=None,
+                    task_id=tid,
+                    aweme_id="v1",
+                    url="http://x/v1",
+                    type="video",
+                    status="completed",
+                    local_path=win_style_path,
+                )
+            )
+
+            resp = api_client.post("/api/download/verify")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["verified_count"] == 1
+            assert data["missing_count"] == 0
+            assert data["missing_items"] == []
+        finally:
+            os.unlink(temp_path)
+
+    def test_verify_empty_local_path(self, api_client, memory_db):
+        """local_path 为空时标记为 missing。"""
+        task_repo = TaskRepository(memory_db)
+        item_repo = TaskItemRepository(memory_db)
+
+        tid = task_repo.create(
+            Task(
+                id=None,
+                source_type="single",
+                source_url="x",
+                status="completed",
+                download_dir="/tmp",
+            )
+        )
+        item_id = item_repo.create(
+            TaskItem(
+                id=None,
+                task_id=tid,
+                aweme_id="v1",
+                url="http://x/v1",
+                type="video",
+                status="completed",
+                local_path=None,
+            )
+        )
+
+        resp = api_client.post("/api/download/verify")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["verified_count"] == 1
+        assert data["missing_count"] == 1
+
+        item = item_repo.get(item_id)
+        assert item.status == "failed"
+
+    def test_verify_empty_completed_list(self, api_client, memory_db):
+        """没有 completed 项时返回 0 计数。"""
+        resp = api_client.post("/api/download/verify")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["verified_count"] == 0
+        assert data["missing_count"] == 0
+        assert data["missing_items"] == []
+
+    def test_verify_only_checks_completed_items(self, api_client, memory_db):
+        """只校验 completed 状态项，不检查其他状态。"""
+        task_repo = TaskRepository(memory_db)
+        item_repo = TaskItemRepository(memory_db)
+
+        tid = task_repo.create(
+            Task(
+                id=None,
+                source_type="single",
+                source_url="x",
+                status="downloading",
+                download_dir="/tmp",
+            )
+        )
+        item_repo.create(
+            TaskItem(
+                id=None,
+                task_id=tid,
+                aweme_id="d1",
+                url="http://x/d1",
+                type="video",
+                status="downloading",
+                local_path="C:/nonexistent/path/file.mp4",
+            )
+        )
+        item_repo.create(
+            TaskItem(
+                id=None,
+                task_id=tid,
+                aweme_id="f1",
+                url="http://x/f1",
+                type="video",
+                status="failed",
+                local_path="C:/nonexistent/path/file.mp4",
+            )
+        )
+
+        resp = api_client.post("/api/download/verify")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["verified_count"] == 0
+        assert data["missing_count"] == 0
