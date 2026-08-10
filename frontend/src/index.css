@@ -78,11 +78,16 @@
 }
 
 /* Base styles */
+html, body, #root {
+  height: 100%;
+}
+
 body {
   font-family: "Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI", "PingFang SC", sans-serif;
   font-size: var(--font-size-body);
   color: var(--color-text-primary);
-  background-color: var(--color-bg-base);
+  /* 透明窗口：body 透明，由应用根容器提供底色，仅靠窗口阴影区分边界 */
+  background-color: transparent;
   margin: 0;
   padding: 0;
   -webkit-font-smoothing: antialiased;
@@ -90,7 +95,12 @@ body {
   transition: background-color 0.2s ease, color 0.2s ease;
 }
 
-/* Scrollbar styles */
+/* 无边框纯自定义窗口：全局取消多余描边，容器靠底色与间距区分 */
+* {
+  border-color: transparent;
+}
+
+/* Scrollbar styles（无描边，仅圆角滑块） */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
@@ -98,12 +108,14 @@ body {
 
 ::-webkit-scrollbar-track {
   background: transparent;
+  border: none;
 }
 
 ::-webkit-scrollbar-thumb {
   background: var(--color-border-default);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-full);
   min-height: 32px;
+  border: none;
 }
 
 ::-webkit-scrollbar-thumb:hover {

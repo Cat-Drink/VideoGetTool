@@ -21,17 +21,18 @@ export function SlidePanel({ open, title, onClose, children }: SlidePanelProps) 
         )}
         onClick={onClose}
       />
-      {/* 侧滑面板 */}
+      {/* 侧滑面板（从标题栏下方开始，不遮盖 36px 标题栏） */}
       <aside
         className={cn(
-          "fixed top-0 right-0 z-50 h-full w-[520px] max-w-full bg-bg-base shadow-overlay flex flex-col transition-transform duration-300 ease-out",
+          "fixed top-9 right-0 z-50 h-[calc(100%-36px)] w-[520px] max-w-full bg-bg-base shadow-overlay flex flex-col transition-transform duration-300 ease-out",
           open ? "translate-x-0" : "translate-x-full",
         )}
       >
-        <div className="flex items-center gap-3 px-4 h-14 border-b border-border-light">
+        <div className="flex items-center gap-3 px-4 h-12">
           <button
             onClick={onClose}
             className="flex items-center gap-1 text-sm text-text-secondary hover:text-text-primary transition-colors"
+            style={{ pointerEvents: "auto" }}
           >
             <ArrowLeft size={16} /> 返回
           </button>

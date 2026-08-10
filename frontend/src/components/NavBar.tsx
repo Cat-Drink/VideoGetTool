@@ -21,17 +21,9 @@ export function NavBar() {
   const { theme, toggleTheme } = useThemeStore();
 
   return (
-    <nav className="flex flex-col w-[200px] min-w-[200px] h-full bg-bg-base border-r border-border-light transition-colors">
-      {/* Logo */}
-      <div className="flex items-center gap-2 h-16 px-5">
-        <div className="w-8 h-8 rounded-lg bg-purple-500 flex items-center justify-center text-white text-sm font-bold">
-          撷
-        </div>
-        <span className="text-base font-semibold text-purple-500">撷风拾影</span>
-      </div>
-
+    <nav className="flex flex-col w-[200px] min-w-[200px] h-full bg-bg-gray transition-colors">
       {/* Nav Items */}
-      <div className="flex-1 flex flex-col gap-0.5 px-2">
+      <div className="flex-1 flex flex-col gap-0.5 px-2 pt-2">
         {navItems.map((item) => {
           const isActive = location.pathname === item.path;
           return (
@@ -39,10 +31,9 @@ export function NavBar() {
               key={item.id}
               onClick={() => navigate(item.path)}
               className={cn(
-                "flex items-center gap-3 h-11 px-4 rounded-sm text-sm transition-colors",
-                "border-l-3 border-transparent",
+                "flex items-center gap-3 h-11 px-4 rounded-md text-sm transition-colors",
                 isActive
-                  ? "bg-bg-selected text-purple-500 font-medium border-l-purple-500"
+                  ? "bg-bg-selected text-purple-500 font-medium"
                   : "text-text-secondary hover:bg-bg-hover hover:text-text-primary",
               )}
             >
@@ -55,12 +46,12 @@ export function NavBar() {
         })}
       </div>
 
-      {/* Theme Toggle & Status Bar */}
-      <div className="border-t border-border-light px-3 py-3 space-y-2">
+      {/* Theme Toggle & Version */}
+      <div className="px-3 py-3 space-y-2">
         {/* Theme Toggle */}
         <button
           onClick={toggleTheme}
-          className="flex items-center gap-3 w-full h-9 px-3 rounded-sm text-sm text-text-secondary hover:bg-bg-hover hover:text-text-primary transition-colors"
+          className="flex items-center gap-3 w-full h-9 px-3 rounded-md text-sm text-text-secondary hover:bg-bg-hover hover:text-text-primary transition-colors"
         >
           {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
           <span>{theme === "dark" ? "浅色模式" : "深色模式"}</span>
