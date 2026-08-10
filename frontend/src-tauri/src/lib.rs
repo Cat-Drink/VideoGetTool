@@ -7,6 +7,7 @@ use tauri::{
 };
 use tauri_plugin_shell::process::CommandChild;
 use tauri_plugin_shell::ShellExt;
+use tauri_plugin_window_state::StateFlags;
 
 /// 持有 sidecar 子进程句柄
 ///
@@ -35,7 +36,15 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(tauri_plugin_window_state::Builder::new()
+            .with_state_flags(
+                StateFlags::SIZE
+                    | StateFlags::POSITION
+                    | StateFlags::MAXIMIZED
+                    | StateFlags::VISIBLE
+                    | StateFlags::FULLSCREEN,
+            )
+            .build())
         .on_window_event(|window, event| {
             // 拦截窗口关闭事件：阻止默认关闭行为，改为隐藏到系统托盘
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
