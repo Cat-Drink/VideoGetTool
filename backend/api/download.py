@@ -353,6 +353,11 @@ async def verify_completed_files():
     遍历所有 completed 状态的任务项，检查 local_path 对应的文件是否真实存在于磁盘。
     若文件不存在，自动将状态重置为 failed（带原因说明）。
     返回校验结果统计。
+
+    修复说明：
+    - 对 local_path 进行 os.path.normpath + os.path.abspath 规范化，解决 Windows 路径问题
+    - 双重校验：os.path.isfile + os.path.exists + os.path.getsize > 0
+    - 增强日志记录，便于调试
     """
     if ctx.task_item_repo is None:
         raise HTTPException(status_code=503, detail="Service not ready")
@@ -360,13 +365,27 @@ async def verify_completed_files():
     completed_items = ctx.task_item_repo.get_by_status(TaskStatus.COMPLETED.value)
     missing_items: list[dict] = []
     verified_count = 0
+    import logging
+    logger = logging.getLogger(__name__)
 
     for item in completed_items:
         if item.id is None:
             continue
         verified_count += 1
-        if item.local_path and os.path.isfile(item.local_path):
-            continue
+        if item.local_path:
+            # 路径规范化：统一正斜杠、转为绝对路径
+            normalized_path = os.path.normpath(os.path.abspath(item.local_path))
+            if os.path.isfile(normalized_path) and os.path.exists(normalized_path) and os.path.getsize(normalized_path) > 0:
+                continue
+            logger.warning(
+                "文件校验失败: item_id=%s, local_path=%r, normalized=%r, isfile=%s, exists=%s, size=%s",
+                item.id,
+                item.local_path,
+                normalized_path,
+                os.path.isfile(normalized_path),
+                os.path.exists(normalized_path),
+                os.path.getsize(normalized_path) if os.path.exists(normalized_path) else "N/A",
+            )
         # 文件不存在：重置为 failed
         ctx.task_item_repo.update_status(
             item.id,
