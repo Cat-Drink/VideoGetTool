@@ -93,34 +93,6 @@ export default function DownloadPage() {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Header */}
-      <div className="flex items-center justify-between px-6 h-14 border-b border-border-light">
-        <h1 className="text-display font-semibold text-text-primary">下载任务</h1>
-        <div className="flex items-center gap-2">
-          {!connected && (
-            <span className="text-xs text-error flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-error inline-block" />
-              服务未连接
-            </span>
-          )}
-          {connected && (
-            <span className="text-xs text-success flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-success inline-block" />
-              已连接
-            </span>
-          )}
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={loadTasks}
-            disabled={loading}
-            title="刷新"
-          >
-            <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
-          </Button>
-        </div>
-      </div>
-
       {/* Toolbar */}
       <div className="flex items-center gap-2 px-6 h-12 border-b border-border-light">
         <Button variant="ghost" size="sm" onClick={pauseAll}>全部暂停</Button>
