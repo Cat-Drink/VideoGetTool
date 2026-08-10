@@ -1,22 +1,18 @@
 import { useLocation, useNavigate } from "react-router-dom";
 import { cn } from "../lib/utils";
-import { Download, Link, User, Key, Settings, Moon, Sun } from "lucide-react";
+import { Download, Link, User, Moon, Sun } from "lucide-react";
 import { useThemeStore } from "../store/themeStore";
 
 const navItems = [
   { id: "batch-fetch", path: "/batch-fetch", label: "批量抓取", icon: "link" },
   { id: "profile-fetch", path: "/profile-fetch", label: "主页抓取", icon: "user" },
   { id: "download", path: "/download", label: "下载任务", icon: "download" },
-  { id: "cookie", path: "/cookie", label: "Cookie 配置", icon: "key" },
-  { id: "settings", path: "/settings", label: "设置", icon: "settings" },
 ];
 
 const iconMap: Record<string, React.ReactNode> = {
   download: <Download size={20} />,
   link: <Link size={20} />,
   user: <User size={20} />,
-  key: <Key size={20} />,
-  settings: <Settings size={20} />,
 };
 
 export function NavBar() {
