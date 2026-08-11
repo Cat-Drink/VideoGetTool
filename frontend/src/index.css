@@ -81,8 +81,8 @@
    无边框 + 系统原生阴影方案：
    - tauri.conf.json 设置 transparent: false（不透明窗口，规避 Windows 渲染灰块 Bug）
      与 shadow: true（启用系统原生阴影，由 OS 绘制，性能好且无灰边）
-   - 窗口大小 = 内容大小，body/#root 直接撑满，不留 margin（阴影由系统负责，无需 CSS 画布）
-   - #root 保留圆角与 1px 微边框，用于在纯白背景下区分窗口边界 */
+   - #root 为透明容器，无边框无圆角，填满矩形窗口（系统原生阴影）
+   - AppShell 的 bg-bg-base 提供白色背景，内容完全延伸至窗口边缘，无视觉裁切 */
 html, body, #root {
   height: 100%;
 }
@@ -105,14 +105,9 @@ body {
   transition: background-color 0.2s ease, color 0.2s ease;
 }
 
-/* 圆角容器 + 微边框（替代 CSS 阴影，阴影由系统原生绘制） */
+/* 透明根容器：无边框无圆角，内容完全填满矩形窗口 */
 #root {
   height: 100%;
-  border-radius: 10px;
-  overflow: hidden;
-  background-color: var(--color-bg-base);
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  box-sizing: border-box;
 }
 
 /* 无边框纯自定义窗口：全局取消多余描边，容器靠底色与间距区分 */
