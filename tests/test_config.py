@@ -33,9 +33,9 @@ class TestConfigPaths:
 class TestDefaultConfigs:
     """默认配置测试。"""
 
-    def test_default_configs_has_6_keys(self) -> None:
-        """DEFAULT_CONFIGS 应包含 6 个键。"""
-        assert len(config.DEFAULT_CONFIGS) == 6
+    def test_default_configs_has_7_keys(self) -> None:
+        """DEFAULT_CONFIGS 应包含 7 个键。"""
+        assert len(config.DEFAULT_CONFIGS) == 7
 
     def test_default_configs_values_are_strings(self) -> None:
         """DEFAULT_CONFIGS 的值均为字符串。"""
@@ -43,13 +43,14 @@ class TestDefaultConfigs:
             assert isinstance(value, str)
 
     def test_default_configs_keys(self) -> None:
-        """DEFAULT_CONFIGS 应包含指定的 6 个键。"""
+        """DEFAULT_CONFIGS 应包含指定的 7 个键。"""
         expected_keys = {
             "download_dir",
             "concurrency",
             "chunk_size",
             "retry_count",
             "metadata_format",
+            "webp_auto_convert",
             "onboarding_done",
         }
         assert set(config.DEFAULT_CONFIGS.keys()) == expected_keys
