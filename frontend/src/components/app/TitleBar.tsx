@@ -38,25 +38,24 @@ export function TitleBar() {
   };
 
   return (
-    <div className="flex items-center h-9 min-h-9 bg-bg-base select-none" data-tauri-drag-region>
-      {/* 左侧：应用图标 + 名称 */}
-      <div className="flex items-center gap-2 px-4" data-tauri-drag-region>
+    <div className="flex items-center h-9 min-h-9 bg-bg-base select-none">
+      {/* 左侧：应用图标 + 名称（可拖拽区域） */}
+      <div className="flex items-center gap-2 px-4 h-full" data-tauri-drag-region>
         <div className="w-6 h-6 rounded-md bg-purple-500 flex items-center justify-center text-white text-xs font-bold">
           撷
         </div>
         <span className="text-sm font-semibold text-purple-500">撷风拾影</span>
       </div>
 
-      {/* 中间：拖拽区域 */}
+      {/* 中间：弹性拖拽区域（不包含右侧按钮，按钮无需 pointer-events hack） */}
       <div className="flex-1 h-full" data-tauri-drag-region />
 
-      {/* 右侧：控制按钮（指针事件解除拖拽屏蔽，可正常点击） */}
+      {/* 右侧：控制按钮（不在拖拽区域内，点击事件自然触发） */}
       <div className="flex items-center h-full">
         {/* 设置 */}
         <button
           onClick={handleOpenSettings}
           className="flex items-center justify-center w-10 h-full text-text-secondary hover:bg-bg-hover hover:text-text-primary transition-colors"
-          style={{ pointerEvents: "auto" }}
           title="设置"
         >
           <Settings size={15} />
@@ -66,7 +65,6 @@ export function TitleBar() {
         <button
           onClick={handleMinimize}
           className="flex items-center justify-center w-10 h-full text-text-secondary hover:bg-bg-hover hover:text-text-primary transition-colors"
-          style={{ pointerEvents: "auto" }}
           title="最小化"
         >
           <Minus size={15} />
@@ -76,7 +74,6 @@ export function TitleBar() {
         <button
           onClick={handleToggleMaximize}
           className="flex items-center justify-center w-10 h-full text-text-secondary hover:bg-bg-hover hover:text-text-primary transition-colors"
-          style={{ pointerEvents: "auto" }}
           title={isMaximized ? "还原" : "最大化"}
         >
           {isMaximized ? <Square size={13} /> : <Maximize2 size={13} />}
@@ -86,7 +83,6 @@ export function TitleBar() {
         <button
           onClick={handleClose}
           className="flex items-center justify-center w-10 h-full text-text-secondary hover:bg-error hover:text-white transition-colors"
-          style={{ pointerEvents: "auto" }}
           title="关闭"
         >
           <X size={15} />
