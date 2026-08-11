@@ -24,6 +24,7 @@ class ConfigResponse(BaseModel):
     concurrency: int
     chunk_size: int
     metadata_format: str
+    webp_auto_convert: bool
     onboarding_done: bool
 
 
@@ -34,6 +35,7 @@ class UpdateConfigRequest(BaseModel):
     concurrency: int | None = None
     chunk_size: int | None = None
     metadata_format: str | None = None
+    webp_auto_convert: bool | None = None
     onboarding_done: bool | None = None
 
 
@@ -51,6 +53,7 @@ async def get_config():
         concurrency=int(config.get("concurrency", "3")),
         chunk_size=int(config.get("chunk_size", "1048576")),
         metadata_format=config.get("metadata_format", "json"),
+        webp_auto_convert=config.get("webp_auto_convert", "true") == "true",
         onboarding_done=config.get("onboarding_done", "false") == "true",
     )
 
@@ -74,6 +77,8 @@ async def update_config(req: UpdateConfigRequest):
         ctx.config_repo.set("metadata_format", req.metadata_format)
     if req.onboarding_done is not None:
         ctx.config_repo.set("onboarding_done", "true" if req.onboarding_done else "false")
+    if req.webp_auto_convert is not None:
+        ctx.config_repo.set("webp_auto_convert", "true" if req.webp_auto_convert else "false")
 
     return {"message": "配置已更新"}
 
