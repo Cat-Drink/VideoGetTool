@@ -24,15 +24,15 @@ from downloader.downloader import (
     LARGE_FILE_THRESHOLD,
     MAX_RETRY_COUNT,
     MAX_SEGMENTS,
+    MP4_EXTENSION,
     PERSIST_INTERVAL_BYTES,
     PERSIST_INTERVAL_SECONDS,
     RATE_LIMITED_STATUS_CODES,
     RETRY_BACKOFF_BASE,
     SEGMENT_SIZE,
+    WEBP_EXTENSIONS,
     Downloader,
     DownloadResult,
-    MP4_EXTENSION,
-    WEBP_EXTENSIONS,
     _select_urls_by_indices,
 )
 from downloader.progress_reporter import ProgressReporter
@@ -1676,9 +1676,7 @@ class TestWebPConvert:
         dl = _make_downloader(webp_auto_convert=True)
         webp = tmp_path / "image.webp"
         webp.write_bytes(b"data")
-        with patch.object(
-            Downloader, "_convert_webp_to_mp4", return_value=None
-        ) as mock_convert:
+        with patch.object(Downloader, "_convert_webp_to_mp4", return_value=None) as mock_convert:
             result = dl._maybe_convert_webp(str(webp))
             mock_convert.assert_called_once()
             assert result == str(webp)
@@ -1694,12 +1692,14 @@ class TestWebPConvert:
         webp = tmp_path / "image.webp"
         webp.write_bytes(b"webpdata")
         mp4 = tmp_path / "image.mp4"
-        with patch.object(Downloader, "_find_ffmpeg", return_value="ffmpeg"):
-            with patch(
+        with (
+            patch.object(Downloader, "_find_ffmpeg", return_value="ffmpeg"),
+            patch(
                 "downloader.downloader.subprocess.run",
                 return_value=MagicMock(returncode=0, stderr=b""),
-            ):
-                result = Downloader._convert_webp_to_mp4(str(webp))
+            ),
+        ):
+            result = Downloader._convert_webp_to_mp4(str(webp))
         assert result == str(mp4)
         # 原 WebP 文件被删除
         assert not webp.exists()
@@ -1708,12 +1708,14 @@ class TestWebPConvert:
         """FFmpeg 转码失败时保留原 WebP 文件并返回 None。"""
         webp = tmp_path / "image.webp"
         webp.write_bytes(b"webpdata")
-        with patch.object(Downloader, "_find_ffmpeg", return_value="ffmpeg"):
-            with patch(
+        with (
+            patch.object(Downloader, "_find_ffmpeg", return_value="ffmpeg"),
+            patch(
                 "downloader.downloader.subprocess.run",
                 return_value=MagicMock(returncode=1, stderr=b"error"),
-            ):
-                result = Downloader._convert_webp_to_mp4(str(webp))
+            ),
+        ):
+            result = Downloader._convert_webp_to_mp4(str(webp))
         assert result is None
         assert webp.exists()
 
@@ -1723,11 +1725,11 @@ class TestWebPConvert:
         webp.write_bytes(b"webpdata")
         mp4 = tmp_path / "image.mp4"
         mp4.write_bytes(b"existing")
-        with patch.object(Downloader, "_find_ffmpeg", return_value="ffmpeg"):
-            with patch(
-                "downloader.downloader.subprocess.run"
-            ) as mock_run:
-                result = Downloader._convert_webp_to_mp4(str(webp))
+        with (
+            patch.object(Downloader, "_find_ffmpeg", return_value="ffmpeg"),
+            patch("downloader.downloader.subprocess.run") as mock_run,
+        ):
+            result = Downloader._convert_webp_to_mp4(str(webp))
         mock_run.assert_not_called()
         assert result == str(mp4)
         assert webp.exists()
@@ -1749,7 +1751,9 @@ class TestWebPConvert:
         _insert_item(dl._conn, item)
         final_path = tmp_path / "aweme_webp.webp"
         with patch.object(
-            Downloader, "_maybe_convert_webp", side_effect=lambda p: str(Path(p).with_suffix(".mp4"))
+            Downloader,
+            "_maybe_convert_webp",
+            side_effect=lambda p: str(Path(p).with_suffix(".mp4")),
         ) as mock_convert:
             result = await dl._download_single_file(item, item.url, final_path)
             mock_convert.assert_called_once()

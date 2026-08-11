@@ -386,7 +386,8 @@ class Downloader:
     def _convert_webp_to_mp4(webp_path: str) -> str | None:
         """将 WebP 文件转码为 MP4。
 
-        使用 FFmpeg 执行转码：``ffmpeg -i <input.webp> -c:v libx264 -pix_fmt yuv420p <output.mp4>``。
+        使用 FFmpeg 执行转码：
+        ``ffmpeg -i <input.webp> -c:v libx264 -pix_fmt yuv420p <output.mp4>``。
 
         Args:
             webp_path: 输入 WebP 文件路径
@@ -408,9 +409,12 @@ class Downloader:
         try:
             cmd = [
                 ffmpeg,
-                "-i", webp_path,
-                "-c:v", "libx264",
-                "-pix_fmt", "yuv420p",
+                "-i",
+                webp_path,
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
                 "-y",  # 覆盖输出文件
                 str(mp4_path),
             ]

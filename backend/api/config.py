@@ -8,8 +8,8 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from backend.state import ctx
 from app.config import DEFAULT_CONFIGS
+from backend.state import ctx
 
 router = APIRouter()
 
