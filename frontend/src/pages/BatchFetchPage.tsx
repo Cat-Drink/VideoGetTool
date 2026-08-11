@@ -107,10 +107,6 @@ export default function BatchFetchPage() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center px-6 h-14 border-b border-border-light">
-        <h1 className="text-display font-semibold text-text-primary">批量抓取</h1>
-      </div>
-
       {/* Input Area */}
       <div className="p-6 pb-0">
         <div className="flex gap-2">

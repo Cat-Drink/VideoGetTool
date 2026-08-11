@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from backend.state import ctx
+from app.config import DEFAULT_CONFIGS
 
 router = APIRouter()
 
@@ -75,6 +76,19 @@ async def update_config(req: UpdateConfigRequest):
         ctx.config_repo.set("onboarding_done", "true" if req.onboarding_done else "false")
 
     return {"message": "配置已更新"}
+
+
+@router.post("/reset")
+async def reset_config():
+    """重置所有配置为默认值。"""
+    if ctx.config_repo is None:
+        raise HTTPException(status_code=503, detail="Service not ready")
+    for key, value in DEFAULT_CONFIGS.items():
+        ctx.config_repo.set(key, value)
+    # 恢复默认并发数
+    if ctx.scheduler is not None:
+        ctx.scheduler.set_max_concurrent(int(DEFAULT_CONFIGS["concurrency"]))
+    return {"message": "配置已重置"}
 
 
 @router.get("/{key}")

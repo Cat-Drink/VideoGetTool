@@ -7,6 +7,7 @@ use tauri::{
 };
 use tauri_plugin_shell::process::CommandChild;
 use tauri_plugin_shell::ShellExt;
+use tauri_plugin_window_state::StateFlags;
 
 /// 持有 sidecar 子进程句柄
 ///
@@ -26,7 +27,7 @@ fn open_link(url: String) -> Result<(), String> {
 /// 获取应用版本号
 #[tauri::command]
 fn get_app_version() -> String {
-    "0.3.2".to_string()
+    "0.3.3".to_string()
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -35,7 +36,15 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(tauri_plugin_window_state::Builder::new()
+            .with_state_flags(
+                StateFlags::SIZE
+                    | StateFlags::POSITION
+                    | StateFlags::MAXIMIZED
+                    | StateFlags::VISIBLE
+                    | StateFlags::FULLSCREEN,
+            )
+            .build())
         .on_window_event(|window, event| {
             // 拦截窗口关闭事件：阻止默认关闭行为，改为隐藏到系统托盘
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
@@ -44,6 +53,13 @@ pub fn run() {
             }
         })
         .setup(|app| {
+            // 方案一：tauri-plugin-shadows（window-shadows-v2）绘制原生阴影
+            // 关闭 tauri.conf.json 的默认原生阴影（shadow: false），改由该插件
+            // 通过 DwmExtendFrameIntoClientArea 精确扩展非客户区绘制外阴影，
+            // 避免 DWM 默认阴影渗入 WebView 客户区（右侧/下侧黑边）的问题。
+            #[cfg(any(target_os = "windows", target_os = "macos"))]
+            window_shadows_v2::set_shadows(app, true);
+
             // 构建托盘菜单
             let show_item = MenuItem::with_id(app, "show", "显示窗口", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;

@@ -1,0 +1,26 @@
+# 统一所有文本文件行尾为 LF
+* text=auto eol=lf
+
+# Rust 文件
+*.rs text eol=lf
+*.toml text eol=lf
+*.lock text eol=lf
+
+# Shell 脚本
+*.sh text eol=lf
+*.ps1 text eol=lf
+
+# 前端
+*.ts text eol=lf
+*.tsx text eol=lf
+*.css text eol=lf
+*.json text eol=lf
+*.html text eol=lf
+
+# Python
+*.py text eol=lf
+
+# 二进制文件
+*.png binary
+*.ico binary
+*.icns binary
