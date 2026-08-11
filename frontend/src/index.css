@@ -95,11 +95,14 @@ body {
   transition: background-color 0.2s ease, color 0.2s ease;
 }
 
-/* 无边框窗口圆角外观：根容器圆角 + 溢出裁剪，四个角不露方角 */
+/* 无边框窗口圆角外观：根容器圆角 + 溢出裁剪，四个角不露方角。
+   已禁用 OS 窗口阴影（tauri.conf.json shadow:false），
+   改用内嵌 1px 描边环来定义边缘，避免原生阴影穿透到页面内部。 */
 #root {
   border-radius: 10px;
   overflow: hidden;
   background-color: var(--color-bg-base);
+  box-shadow: inset 0 0 0 1px var(--color-border-light);
 }
 
 /* 无边框纯自定义窗口：全局取消多余描边，容器靠底色与间距区分 */
