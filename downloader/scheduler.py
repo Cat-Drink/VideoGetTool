@@ -78,6 +78,7 @@ class Scheduler:
         on_progress: Callable[[list[ProgressUpdate]], None] | None = None,
         video_parser: VideoParser | None = None,
         cookie_repository: CookieRepository | None = None,
+        webp_auto_convert: bool = True,
     ) -> None:
         """初始化调度器。
 
@@ -92,12 +93,14 @@ class Scheduler:
                 为 None 时图集 4xx 直接失败不重新解析
             cookie_repository: 重新解析时取有效 Cookie（v0.1.7 plan 6.6）；
                 为 None 时图集 4xx 直接失败不重新解析
+            webp_auto_convert: 下载完成后是否将 WebP 文件自动转码为 MP4
         """
         self._conn = conn
         self._item_repo = TaskItemRepository(conn)
         self._task_repo = TaskRepository(conn)
         self._on_item_completed = on_item_completed
         self._on_item_failed = on_item_failed
+        self._webp_auto_convert = webp_auto_convert
 
         # clamp 并发数到 [1, 10]
         self._max_concurrent = max(1, min(max_concurrent, MAX_CONCURRENT_LIMIT))
@@ -128,6 +131,7 @@ class Scheduler:
             conn=conn,
             video_parser=video_parser,
             cookie_repository=cookie_repository,
+            webp_auto_convert=webp_auto_convert,
         )
 
         # 内部状态

@@ -155,6 +155,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         on_progress=_on_progress,
         video_parser=ctx.video_parser,
         cookie_repository=ctx.cookie_repo,
+        webp_auto_convert=(
+            ctx.config_repo.get("webp_auto_convert") != "false" if ctx.config_repo is not None else True
+        ),
     )
 
     # 6. 启动调度器
