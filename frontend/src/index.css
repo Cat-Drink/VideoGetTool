@@ -77,7 +77,11 @@
   --shadow-overlay: 0 20px 40px rgba(0,0,0,0.6);
 }
 
-/* Base styles */
+/* Base styles.
+   无边框 + 透明窗口方案：
+   - tauri.conf.json 设置 transparent: true（窗口透明）与 shadow: false（禁用 OS 阴影）
+   - body 透明并留出内边距，作为阴影与圆角的"透明画布"
+   - #root 为圆角实色卡片，用向外 box-shadow 绘制程序边界阴影（不穿透进页面内部） */
 html, body, #root {
   height: 100%;
 }
@@ -86,23 +90,23 @@ body {
   font-family: "Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI", "PingFang SC", sans-serif;
   font-size: var(--font-size-body);
   color: var(--color-text-primary);
-  background-color: var(--color-bg-base);
+  background-color: transparent;
   margin: 0;
-  padding: 0;
+  padding: 12px;
+  box-sizing: border-box;
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   transition: background-color 0.2s ease, color 0.2s ease;
 }
 
-/* 无边框窗口圆角外观：根容器圆角 + 溢出裁剪，四个角不露方角。
-   已禁用 OS 窗口阴影（tauri.conf.json shadow:false），
-   改用内嵌 1px 描边环来定义边缘，避免原生阴影穿透到页面内部。 */
+/* 圆角卡片 + 向外阴影作为程序边界（不侵入页面内部，不影响拖拽） */
 #root {
+  height: 100%;
   border-radius: 10px;
   overflow: hidden;
   background-color: var(--color-bg-base);
-  box-shadow: inset 0 0 0 1px var(--color-border-light);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
 }
 
 /* 无边框纯自定义窗口：全局取消多余描边，容器靠底色与间距区分 */

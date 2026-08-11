@@ -10,7 +10,7 @@ export function AppShell() {
   const { activePanel, closePanel } = usePanelStore();
 
   return (
-    <div className="flex flex-col h-screen w-screen bg-bg-base overflow-hidden transition-colors">
+    <div className="flex flex-col h-full w-full bg-bg-base overflow-hidden transition-colors">
       <TitleBar />
       <div className="flex flex-1 overflow-hidden">
         <NavBar />
