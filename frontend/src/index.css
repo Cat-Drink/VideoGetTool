@@ -80,7 +80,9 @@
 /* Base styles.
    无边框 + 系统原生阴影方案：
    - tauri.conf.json 设置 transparent: false（不透明窗口，规避 Windows 渲染灰块 Bug）
-     与 shadow: true（启用系统原生阴影，由 OS 绘制，性能好且无灰边）
+     与 shadow: false（关闭默认 DWM 阴影，交由 window-shadows-v2 插件处理）
+   - window-shadows-v2 通过 DwmExtendFrameIntoClientArea 精确绘制外阴影，
+     避免 DWM 默认阴影渗入 WebView 客户区（右侧/下侧黑边）
    - #root 为透明容器，无边框无圆角，填满矩形窗口（系统原生阴影）
    - AppShell 的 bg-bg-base 提供白色背景，内容完全延伸至窗口边缘，无视觉裁切 */
 html, body, #root {

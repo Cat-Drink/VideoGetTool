@@ -100,7 +100,7 @@ export default function SettingsPanel() {
     if (!config) return;
     setSaving(true);
     try {
-      await api.updateConfig({ concurrency } as any);
+      await api.updateConfig({ concurrency });
       setConfig({ ...config, concurrency });
       addToast("并发数已更新", "success");
     } catch (e) {
@@ -114,7 +114,7 @@ export default function SettingsPanel() {
     const dir = await pickDirectory();
     if (dir && config) {
       try {
-        await api.updateConfig({ download_dir: dir } as any);
+        await api.updateConfig({ download_dir: dir });
         setConfig({ ...config, download_dir: dir });
         addToast("下载目录已更新", "success");
       } catch {
@@ -277,9 +277,15 @@ export default function SettingsPanel() {
               问题反馈
             </button>
             <button
-              onClick={() => {
+              onClick={async () => {
                 if (confirm("确定要恢复初始设置吗？此操作不可撤销。")) {
-                  addToast("已恢复初始设置", "success");
+                  try {
+                    await api.resetConfig();
+                    addToast("配置已重置", "success");
+                    await loadConfig();
+                  } catch {
+                    addToast("重置配置失败", "error");
+                  }
                 }
               }}
               className="flex items-center gap-2 px-4 h-9 text-sm text-text-secondary bg-bg-base border border-border-light rounded-md hover:bg-bg-hover hover:text-text-primary transition-colors"

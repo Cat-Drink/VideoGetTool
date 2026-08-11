@@ -208,3 +208,7 @@ export async function updateConfig(params: Partial<ConfigResponse>): Promise<{ m
     body: JSON.stringify(params),
   });
 }
+
+export async function resetConfig(): Promise<{ message: string }> {
+  return request("/config/reset", { method: "POST" });
+}
