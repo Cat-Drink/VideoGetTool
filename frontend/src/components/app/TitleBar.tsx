@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
-import { Settings, Minus, Square, Maximize2, X } from "lucide-react";
+import { Settings, Minus, Square, Maximize2, X, Moon, Sun } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { usePanelStore } from "../../store/panelStore";
+import { useThemeStore } from "../../store/themeStore";
 
 /** 自定义标题栏组件 — 纯无边框窗口的窗口控制与标题区域 */
 export function TitleBar() {
   const [isMaximized, setIsMaximized] = useState(false);
   const { openPanel } = usePanelStore();
+  const { theme, toggleTheme } = useThemeStore();
   const appWindow = getCurrentWindow();
 
   useEffect(() => {
@@ -52,6 +54,15 @@ export function TitleBar() {
 
       {/* 右侧：控制按钮（不在拖拽区域内，点击事件自然触发） */}
       <div className="flex items-center h-full">
+        {/* 深色/浅色模式切换 */}
+        <button
+          onClick={toggleTheme}
+          className="flex items-center justify-center w-10 h-full text-text-secondary hover:bg-bg-hover hover:text-text-primary transition-colors"
+          title={theme === "dark" ? "切换到浅色模式" : "切换到深色模式"}
+        >
+          {theme === "dark" ? <Sun size={15} /> : <Moon size={15} />}
+        </button>
+
         {/* 设置 */}
         <button
           onClick={handleOpenSettings}

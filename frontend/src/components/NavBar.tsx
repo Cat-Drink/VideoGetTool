@@ -1,7 +1,6 @@
 import { useLocation, useNavigate } from "react-router-dom";
 import { cn } from "../lib/utils";
-import { Download, Link, User, Moon, Sun } from "lucide-react";
-import { useThemeStore } from "../store/themeStore";
+import { Download, Link, User } from "lucide-react";
 
 const navItems = [
   { id: "batch-fetch", path: "/batch-fetch", label: "批量抓取", icon: "link" },
@@ -18,7 +17,6 @@ const iconMap: Record<string, React.ReactNode> = {
 export function NavBar() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { theme, toggleTheme } = useThemeStore();
 
   return (
     <nav className="flex flex-col w-[200px] min-w-[200px] h-full bg-bg-gray transition-colors">
@@ -44,23 +42,6 @@ export function NavBar() {
             </button>
           );
         })}
-      </div>
-
-      {/* Theme Toggle & Version */}
-      <div className="px-3 py-3 space-y-2">
-        {/* Theme Toggle */}
-        <button
-          onClick={toggleTheme}
-          className="flex items-center gap-3 w-full h-9 px-3 rounded-md text-sm text-text-secondary hover:bg-bg-hover hover:text-text-primary transition-colors"
-        >
-          {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
-          <span>{theme === "dark" ? "浅色模式" : "深色模式"}</span>
-        </button>
-
-        {/* Version */}
-        <div className="flex items-center justify-between px-3 text-xs text-text-disabled">
-          <span>v0.3.0</span>
-        </div>
       </div>
     </nav>
   );

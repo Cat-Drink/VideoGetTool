@@ -1,5 +1,5 @@
 import { ReactNode } from "react";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, X } from "lucide-react";
 import { cn } from "../../lib/utils";
 
 interface SlidePanelProps {
@@ -13,30 +13,29 @@ interface SlidePanelProps {
 export function SlidePanel({ open, title, onClose, children }: SlidePanelProps) {
   return (
     <>
-      {/* 半透明覆盖层 */}
-      <div
-        className={cn(
-          "fixed inset-0 z-40 bg-black/40 transition-opacity duration-300",
-          open ? "opacity-100" : "opacity-0 pointer-events-none",
-        )}
-        onClick={onClose}
-      />
-      {/* 侧滑面板（从标题栏下方开始，不遮盖 36px 标题栏） */}
+      {/* 全屏覆盖面板（从右侧滑入，覆盖整个窗口） */}
       <aside
         className={cn(
-          "fixed top-9 right-0 z-50 h-[calc(100%-36px)] w-[520px] max-w-full bg-bg-base flex flex-col transition-transform duration-300 ease-out",
-          open ? "translate-x-0 shadow-overlay" : "translate-x-full shadow-none",
+          "fixed inset-0 z-50 bg-bg-base flex flex-col transition-transform duration-300 ease-out",
+          open ? "translate-x-0" : "translate-x-full",
         )}
       >
-        <div className="flex items-center gap-3 px-4 h-12">
+        {/* 顶部导航栏 */}
+        <div className="flex items-center justify-between px-4 h-12 bg-bg-base border-b border-border-light">
           <button
             onClick={onClose}
             className="flex items-center gap-1 text-sm text-text-secondary hover:text-text-primary transition-colors"
-            style={{ pointerEvents: "auto" }}
           >
             <ArrowLeft size={16} /> 返回
           </button>
-          <h1 className="text-display font-semibold text-text-primary">{title}</h1>
+          <h1 className="text-display font-semibold text-text-primary absolute left-1/2 -translate-x-1/2">{title}</h1>
+          <button
+            onClick={onClose}
+            className="flex items-center justify-center w-8 h-8 text-text-secondary hover:text-text-primary hover:bg-bg-hover rounded-md transition-colors"
+            title="关闭"
+          >
+            <X size={16} />
+          </button>
         </div>
         <div className="flex-1 overflow-y-auto">{children}</div>
       </aside>
