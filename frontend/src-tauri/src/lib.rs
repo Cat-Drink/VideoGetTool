@@ -53,6 +53,13 @@ pub fn run() {
             }
         })
         .setup(|app| {
+            // 方案一：tauri-plugin-shadows（window-shadows-v2）绘制原生阴影
+            // 关闭 tauri.conf.json 的默认原生阴影（shadow: false），改由该插件
+            // 通过 DwmExtendFrameIntoClientArea 精确扩展非客户区绘制外阴影，
+            // 避免 DWM 默认阴影渗入 WebView 客户区（右侧/下侧黑边）的问题。
+            #[cfg(any(target_os = "windows", target_os = "macos"))]
+            window_shadows_v2::set_shadows(app, true);
+
             // 构建托盘菜单
             let show_item = MenuItem::with_id(app, "show", "显示窗口", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;

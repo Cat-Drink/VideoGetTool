@@ -24,8 +24,8 @@ export function SlidePanel({ open, title, onClose, children }: SlidePanelProps) 
       {/* 侧滑面板（从标题栏下方开始，不遮盖 36px 标题栏） */}
       <aside
         className={cn(
-          "fixed top-9 right-0 z-50 h-[calc(100%-36px)] w-[520px] max-w-full bg-bg-base shadow-overlay flex flex-col transition-transform duration-300 ease-out",
-          open ? "translate-x-0" : "translate-x-full",
+          "fixed top-9 right-0 z-50 h-[calc(100%-36px)] w-[520px] max-w-full bg-bg-base flex flex-col transition-transform duration-300 ease-out",
+          open ? "translate-x-0 shadow-overlay" : "translate-x-full shadow-none",
         )}
       >
         <div className="flex items-center gap-3 px-4 h-12">
