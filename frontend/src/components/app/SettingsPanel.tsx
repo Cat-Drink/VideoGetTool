@@ -12,6 +12,7 @@ import {
   RotateCcw,
   ExternalLink,
   Globe,
+  Image,
 } from "lucide-react";
 import { Button } from "../ui/button";
 import { useToastStore } from "../../store/toastStore";
@@ -214,6 +215,32 @@ export default function SettingsPanel() {
               <div className="flex items-center justify-between h-12">
                 <span className="text-sm text-text-primary">失败重试次数</span>
                 <span className="text-sm text-text-disabled">3 次（固定）</span>
+              </div>
+              <div className="border-t border-border-light" />
+              <div className="flex items-center justify-between h-12">
+                <div className="flex items-center gap-2">
+                  <Image size={16} className="text-purple-500" />
+                  <span className="text-sm text-text-primary">WebP 自动转码 MP4</span>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="sr-only peer"
+                    checked={config?.webp_auto_convert ?? true}
+                    onChange={async (e) => {
+                      const checked = e.target.checked;
+                      if (!config) return;
+                      try {
+                        await api.updateConfig({ webp_auto_convert: checked });
+                        setConfig({ ...config, webp_auto_convert: checked });
+                        addToast(checked ? "WebP 转码已开启" : "WebP 转码已关闭", "success");
+                      } catch {
+                        addToast("保存配置失败", "error");
+                      }
+                    }}
+                  />
+                  <div className="w-9 h-5 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-purple-500" />
+                </label>
               </div>
             </div>
           </SectionCard>

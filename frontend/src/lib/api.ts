@@ -54,6 +54,7 @@ export interface ConfigResponse {
   concurrency: number;
   chunk_size: number;
   metadata_format: string;
+  webp_auto_convert: boolean;
   onboarding_done: boolean;
 }
 
