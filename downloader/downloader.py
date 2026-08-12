@@ -26,6 +26,7 @@ import re
 import shutil
 import sqlite3
 import subprocess
+import sys
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -371,13 +372,39 @@ class Downloader:
 
     @staticmethod
     def _find_ffmpeg() -> str | None:
-        """查找系统 PATH 中的 FFmpeg 可执行文件。
+        """查找 FFmpeg 可执行文件。
+
+        搜索优先级：
+        1. PyInstaller 打包目录（sys._MEIPASS/ffmpeg.exe）—— CI 构建 sidecar 内嵌
+        2. 可执行文件同目录（sys.executable 所在目录/ffmpeg.exe）—— 安装包分发
+        3. 项目 resources/ffmpeg/（本地开发，运行 download_ffmpeg.py 后）
+        4. 系统 PATH（shutil.which）—— 兜底
 
         Returns:
             FFmpeg 可执行文件绝对路径，未找到返回 None
         """
+        # 1) PyInstaller 打包目录（sidecar 内嵌）
+        if hasattr(sys, "_MEIPASS"):
+            bundled = Path(sys._MEIPASS) / "ffmpeg.exe"
+            if bundled.exists():
+                return str(bundled)
+
+        # 2) 可执行文件同目录（安装包分发或直接运行）
+        if sys.executable:
+            exe_dir = Path(sys.executable).parent
+            local = exe_dir / "ffmpeg.exe"
+            if local.exists():
+                return str(local)
+
+        # 3) 项目 resources/ffmpeg/（本地开发，运行 download_ffmpeg.py 后）
+        project_path = (
+            Path(__file__).resolve().parent.parent / "resources" / "ffmpeg" / "ffmpeg.exe"
+        )
+        if project_path.exists():
+            return str(project_path)
+
+        # 4) 系统 PATH（兜底）
         ffmpeg_name = FFMPEG_EXECUTABLE
-        # Windows 下尝试追加 .exe
         if os.name == "nt" and not ffmpeg_name.lower().endswith(".exe"):
             ffmpeg_name += ".exe"
         return shutil.which(ffmpeg_name)
