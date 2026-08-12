@@ -33,6 +33,9 @@ build/
 frontend/src-tauri/binaries/*.exe
 frontend/src-tauri/target/
 
+# FFmpeg 二进制（通过 scripts/download_ffmpeg.py 下载，不入库）
+resources/ffmpeg/ffmpeg.exe
+
 # IDE
 .vscode/
 .idea/
