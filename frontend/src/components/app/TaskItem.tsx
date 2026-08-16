@@ -15,6 +15,7 @@ const statusConfig = {
   pending: { label: "等待中", progressVariant: "default" as const, actionIcon: null },
   downloading: { label: "下载中", progressVariant: "default" as const, actionIcon: <Pause size={14} /> },
   paused: { label: "已暂停", progressVariant: "paused" as const, actionIcon: <Play size={14} /> },
+  processing: { label: "转码中", progressVariant: "default" as const, actionIcon: null },
   completed: { label: "完成", progressVariant: "success" as const, actionIcon: <FolderOpen size={14} /> },
   failed: { label: "失败", progressVariant: "error" as const, actionIcon: <RefreshCw size={14} /> },
 };
@@ -67,7 +68,7 @@ export function TaskItem({ task, onPause, onResume, onRetry, onDelete }: TaskIte
           variant={config.progressVariant}
         />
         <div className="text-xs text-text-secondary text-center mt-0.5">
-          {task.status === "completed" ? "完成" : task.status === "failed" ? "失败" : task.status === "paused" ? "已暂停" : `${Math.round(task.progress)}%`}
+          {task.status === "completed" ? "完成" : task.status === "failed" ? "失败" : task.status === "paused" ? "已暂停" : task.status === "processing" ? "转码中" : `${Math.round(task.progress)}%`}
         </div>
       </div>
 

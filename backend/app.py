@@ -129,7 +129,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                                 "total_bytes": update.total_bytes,
                                 "progress": (
                                     100.0
-                                    if update.status == "completed"
+                                    if update.status == "completed" or update.status == "processing"
                                     else round(
                                         (update.downloaded_bytes / max(update.total_bytes, 1))
                                         * 100,

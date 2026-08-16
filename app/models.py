@@ -26,6 +26,7 @@ class TaskStatus(StrEnum):
     PENDING = "pending"
     DOWNLOADING = "downloading"
     PAUSED = "paused"
+    PROCESSING = "processing"
     COMPLETED = "completed"
     FAILED = "failed"
 
@@ -36,6 +37,7 @@ class TaskItemStatus(StrEnum):
     PENDING = "pending"
     DOWNLOADING = "downloading"
     PAUSED = "paused"
+    PROCESSING = "processing"
     COMPLETED = "completed"
     FAILED = "failed"
 

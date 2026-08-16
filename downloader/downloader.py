@@ -80,6 +80,8 @@ WEBP_EXTENSIONS: frozenset[str] = frozenset({".webp"})
 MP4_EXTENSION: str = ".mp4"
 # FFmpeg 可执行文件名（Windows 下自动追加 .exe）
 FFMPEG_EXECUTABLE: str = "ffmpeg"
+# WebP 转码中的任务状态：进度条保持 100%，前端显示"转码中"
+PROCESSING_STATUS: str = "processing"
 
 # v0.1.3：分片下载常量（SEGMENT_SIZE / MAX_SEGMENTS / LARGE_FILE_THRESHOLD）
 # 已移至 downloader/constants.py 集中定义，本模块通过 import 复用
@@ -815,6 +817,13 @@ class Downloader:
             # 所有分片完成 → 合并
             final_str = self._merge_segments(part_paths, final_path)
             # WebP 自动转码（ISSUE-20）
+            # 转码前上报 processing 进度：进度条保持 100%，前端显示"转码中"
+            self._progress_reporter.update(
+                task_item.id,
+                total_bytes,
+                total_bytes,
+                status=PROCESSING_STATUS,
+            )
             final_str = self._maybe_convert_webp(final_str)
             self._mark_status(task_item.id, "completed", local_path=final_str)
             # 最终持久化一次
@@ -970,6 +979,14 @@ class Downloader:
                     # 下载完成 → 重命名 → 标记完成
                     final_str = self._finalize_file(part_path, final_path)
                     # WebP 自动转码（ISSUE-20）
+                    if mark_status:
+                        # 转码前上报 processing 进度：进度条保持 100%，前端显示"转码中"
+                        self._progress_reporter.update(
+                            task_item.id,
+                            downloaded_bytes,
+                            total_bytes,
+                            status=PROCESSING_STATUS,
+                        )
                     final_str = self._maybe_convert_webp(final_str)
                     if mark_status:
                         self._mark_status(task_item.id, "completed", local_path=final_str)

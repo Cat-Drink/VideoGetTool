@@ -1,4 +1,4 @@
-export type TaskStatus = 'pending' | 'downloading' | 'paused' | 'completed' | 'failed';
+export type TaskStatus = 'pending' | 'downloading' | 'paused' | 'processing' | 'completed' | 'failed';
 export type ContentType = 'video' | 'image_set' | 'long_video';
 export type CookieStatus = 'valid' | 'invalid' | 'untested';
 

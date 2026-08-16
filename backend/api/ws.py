@@ -112,7 +112,7 @@ async def _push_progress_updates(ws: WebSocket, stop_event: asyncio.Event) -> No
             if ctx.task_item_repo is not None:
                 all_updates: list[dict] = []
 
-                for status in ("downloading", "completed", "failed"):
+                for status in ("downloading", "processing", "completed", "failed"):
                     items = ctx.task_item_repo.get_by_status(status)
                     for item in items:
                         if item.id is None:

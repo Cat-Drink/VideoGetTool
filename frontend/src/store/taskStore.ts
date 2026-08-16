@@ -131,9 +131,9 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
 	      items: state.items.map((item) =>
 	        item.id === update.task_item_id
 	          ? {
-	              ...item,
-	              progress: update.status === "completed" ? 100 : update.progress,
-	              status: update.status as api.TaskStatus,
+...item,
+              progress: update.status === "completed" || update.status === "processing" ? 100 : update.progress,
+              status: update.status as api.TaskStatus,
 	              downloadedBytes: update.downloaded_bytes,
 	              totalBytes: update.total_bytes,
 	            }

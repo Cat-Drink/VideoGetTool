@@ -414,7 +414,7 @@ class TaskItemRepository:
         return _row_to_task_item(row) if row else None
 
     def reset_downloading_to_paused(self) -> int:
-        """把所有 downloading 状态的任务项重置为 paused。
+        """把所有 downloading/processing 状态的任务项重置为 paused。
 
         应用启动时把中断的下载项重置为 paused（对应设计文档 4.2 节）。
 
@@ -424,7 +424,7 @@ class TaskItemRepository:
         with self._conn:
             cursor = self._conn.execute(
                 "UPDATE task_items SET status = 'paused', updated_at = ? "
-                "WHERE status = 'downloading'",
+                "WHERE status IN ('downloading', 'processing')",
                 (now_iso(),),
             )
             return cursor.rowcount
