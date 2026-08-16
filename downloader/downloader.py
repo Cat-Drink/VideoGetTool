@@ -392,8 +392,7 @@ class Downloader:
         1. PyInstaller 打包目录（sys._MEIPASS/ffmpeg.exe）—— CI 构建 sidecar 内嵌
         2. 可执行文件同目录（sys.executable 所在目录/ffmpeg.exe）—— 安装包分发
         3. 项目 resources/ffmpeg/（本地开发，运行 download_ffmpeg.py 后）
-        4. imageio-ffmpeg 包内置二进制（pip install imageio-ffmpeg 后自动可用）
-        5. 系统 PATH（shutil.which）—— 兜底
+        4. 系统 PATH（shutil.which）—— 兜底
 
         Returns:
             FFmpeg 可执行文件绝对路径，未找到返回 None
@@ -418,16 +417,7 @@ class Downloader:
         if project_path.exists():
             return str(project_path)
 
-        # 4) imageio-ffmpeg 包内置二进制
-        try:
-            import imageio_ffmpeg
-
-            ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
-            return ffmpeg
-        except (ImportError, RuntimeError, OSError):
-            pass
-
-        # 5) 系统 PATH（兜底）
+        # 4) 系统 PATH（兜底）
         ffmpeg_name = FFMPEG_EXECUTABLE
         if os.name == "nt" and not ffmpeg_name.lower().endswith(".exe"):
             ffmpeg_name += ".exe"
