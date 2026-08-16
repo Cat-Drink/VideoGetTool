@@ -30,6 +30,28 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
+def _is_webp_url(url: str) -> bool:
+    """判断 URL 是否指向 WebP 缩略图资源。
+
+    ISSUE-20：抖音 ``play_addr.url_list`` 可能混入 WebP 静态图直链
+    （URL 含 ``.webp`` 或 ``mime_type=image_webp`` 参数），这类资源
+    只能下载到单帧缩略图而非可播放视频。
+
+    Args:
+        url: 待判断 URL
+
+    Returns:
+        URL 指向 WebP 缩略图时返回 True
+    """
+    url_lower = url.lower()
+    return (
+        ".webp" in url_lower
+        or url_lower.endswith("webp")
+        or "mime_type=image_webp" in url_lower
+        or "webp" in url_lower.split("&")
+    )
+
+
 # === 类型别名 ===
 
 # 抖音作品类型（与计划文档 11.2 节一致，供 UserHomeCrawler 复用）
@@ -175,26 +197,82 @@ class VideoParser:
                 tags.append(name)
         return tags
 
-    @staticmethod
-    def _extract_no_watermark_url(detail: dict) -> str | None:
+    @classmethod
+    def _extract_no_watermark_url(cls, detail: dict) -> str | None:
         """提取视频无水印直链。
 
         路径（见计划文档 3.4.1 节）:
             - 主路径: ``video.play_addr.url_list[0]``
             - 回退: 若 URL 含 ``playwm`` 子串，替换为 ``play`` 得无水印直链
 
+        ISSUE-20 增强：
+        1. play_addr.url_list 中可能混有 WebP 缩略图直链（URL 含 ``.webp``
+           或 ``mime_type=image_webp``），必须跳过这类条目，否则会下载到
+           无法播放的静态占位图。
+        2. 若 ``play_addr`` 全部为 WebP 缩略图，尝试回退到
+           ``video.download_addr`` 字段（可能包含真实视频直链）。
+
         参数:
             detail: ``aweme_detail`` 节点。
 
         返回:
-            无水印直链；列表为空时返回 None。
+            无水印直链；列表为空或无可用视频 URL 时返回 None。
         """
-        url_list = detail.get("video", {}).get("play_addr", {}).get("url_list")
+        video = detail.get("video")
+        if not isinstance(video, dict):
+            return None
+
+        # 尝试从 play_addr 取视频 URL
+        url = cls._pick_video_url_from_play_addr(video)
+        if url is not None:
+            return url
+
+        # 回退：检查 download_addr 字段
+        logger.warning("play_addr 无可用视频直链，尝试 download_addr 回退")
+        download_addr = video.get("download_addr")
+        if isinstance(download_addr, dict):
+            url_list = download_addr.get("url_list")
+            if isinstance(url_list, list):
+                video_urls = [
+                    u for u in url_list if isinstance(u, str) and u and not _is_webp_url(u)
+                ]
+                if video_urls:
+                    url = video_urls[0]
+                    if "playwm" in url:
+                        url = url.replace("playwm", "play")
+                    logger.info("从 download_addr 获取到视频直链: %s", url[:200])
+                    return url
+
+        logger.warning("play_addr 与 download_addr 均无可用视频直链")
+        return None
+
+    @classmethod
+    def _pick_video_url_from_play_addr(cls, video: dict) -> str | None:
+        """从 video.play_addr 中选取可用视频直链。
+
+        优先选择非 WebP 缩略图的视频 URL，跳过 ``.webp`` /
+        ``mime_type=image_webp`` 条目。若全部为 WebP，记录日志后返回 None。
+
+        Args:
+            video: ``aweme_detail.video`` 节点
+
+        Returns:
+            视频直链，无可用时返回 None
+        """
+        play_addr = video.get("play_addr")
+        url_list = play_addr.get("url_list") if isinstance(play_addr, dict) else None
         if not isinstance(url_list, list) or not url_list:
             return None
-        url = url_list[0]
-        if not isinstance(url, str) or not url:
+
+        logger.debug("play_addr.url_list: %s", url_list)
+
+        # 过滤：跳过 WebP 缩略图直链
+        video_urls = [u for u in url_list if isinstance(u, str) and u and not _is_webp_url(u)]
+        if not video_urls:
+            logger.warning("play_addr.url_list 全部为 WebP 缩略图直链: %s", url_list)
             return None
+
+        url = video_urls[0]
         if "playwm" in url:
             url = url.replace("playwm", "play")
         return url

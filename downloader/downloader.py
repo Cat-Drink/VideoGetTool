@@ -896,6 +896,16 @@ class Downloader:
 
                 try:
                     async with self._http_client.stream("GET", url, headers=headers) as response:
+                        # ISSUE-20 诊断：记录响应 Content-Type，识别 CDN 返回
+                        # WebP 缩略图占位（本应返回 video_mp4 却给了 image/webp）
+                        resp_content_type = response.headers.get("Content-Type", "").lower()
+                        if "webp" in resp_content_type or "image" in resp_content_type:
+                            logger.warning(
+                                "下载响应为图片而非视频: url=%s content_type=%s status=%d",
+                                url[:200],
+                                resp_content_type,
+                                response.status_code,
+                            )
                         if response.status_code == 200:
                             # 服务端不支持 Range 或文件已变，从头下载
                             downloaded_bytes = 0
