@@ -6,6 +6,8 @@
 下载地址：https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip
 （Essentials 精简版，约 50MB，仅含 ffmpeg.exe / ffprobe.exe，无 DLL 依赖）
 
+如果网络下载失败，自动回退到从 imageio-ffmpeg 包复制内置的 FFmpeg 二进制。
+
 用法：
     python scripts/download_ffmpeg.py            # 下载并解压到 resources/ffmpeg/
     python scripts/download_ffmpeg.py --check    # 仅检测是否已下载（CI 用）
@@ -64,6 +66,27 @@ def extract_ffmpeg(zip_path: Path) -> None:
     print(f"FFmpeg 已就绪: {FFMPEG_EXE}")
 
 
+def _try_imageio_fallback() -> bool:
+    """尝试从 imageio-ffmpeg 包复制内置 FFmpeg 二进制。"""
+    try:
+        import imageio_ffmpeg
+
+        src = imageio_ffmpeg.get_ffmpeg_exe()
+        print(f"从 imageio-ffmpeg 复制 FFmpeg: {src}")
+        FFMPEG_DIR.mkdir(parents=True, exist_ok=True)
+        import shutil
+
+        shutil.copy2(src, FFMPEG_EXE)
+        print(f"FFmpeg 已就绪: {FFMPEG_EXE}")
+        return True
+    except ImportError:
+        print("imageio-ffmpeg 未安装，可通过 pip install imageio-ffmpeg 安装", file=sys.stderr)
+        return False
+    except (RuntimeError, OSError) as e:
+        print(f"从 imageio-ffmpeg 复制 FFmpeg 失败: {e}", file=sys.stderr)
+        return False
+
+
 def ensure_ffmpeg() -> bool:
     """确保 FFmpeg 可用，返回是否成功。"""
     if FFMPEG_EXE.exists():
@@ -78,7 +101,8 @@ def ensure_ffmpeg() -> bool:
         return True
     except Exception as e:
         print(f"下载/解压 FFmpeg 失败: {e}", file=sys.stderr)
-        return False
+        print("尝试回退到 imageio-ffmpeg...", file=sys.stderr)
+        return _try_imageio_fallback()
     finally:
         # 清理临时 zip
         if tmp_zip.exists():
