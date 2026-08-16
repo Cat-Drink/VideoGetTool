@@ -100,6 +100,18 @@ class DownloadResult:
     error: str | None = None
 
 
+def _remove_webp_original(webp_path: str) -> None:
+    """删除原 WebP 文件（转码成功后调用）。
+
+    Args:
+        webp_path: 原 WebP 文件路径
+    """
+    try:
+        os.remove(webp_path)
+    except OSError as e:
+        logger.warning("删除原 WebP 文件失败: %s", e)
+
+
 def _select_urls_by_indices(urls: list[str], selected_indices_str: str) -> list[str]:
     """按 selected_image_indices JSON 字符串筛选 url 列表。
 
@@ -423,8 +435,11 @@ class Downloader:
     def _convert_webp_to_mp4(webp_path: str) -> str | None:
         """将 WebP 文件转码为 MP4。
 
-        使用 FFmpeg 执行转码：
-        ``ffmpeg -i <input.webp> -c:v libx264 -pix_fmt yuv420p <output.mp4>``。
+        转码策略：
+        1. 先用 FFmpeg 直接尝试转码（单帧 WebP 可正常处理）
+        2. FFmpeg 失败时回退到 Pillow 提取帧 → ffmpeg 编码（支持动画 WebP）
+        因为 FFmpeg 内置的 webp 解码器不支持动画 WebP（ANIM/ANMF chunks），
+        而 Pillow 的 WebP 解码器（基于 libwebp）支持完整动画解码。
 
         Args:
             webp_path: 输入 WebP 文件路径
@@ -449,19 +464,20 @@ class Downloader:
             logger.info("MP4 文件已存在，跳过转码: %s", mp4_path)
             return str(mp4_path)
 
+        # 策略 1：先用 FFmpeg 直接转码（单帧 WebP 可正常处理）
+        cmd = [
+            ffmpeg,
+            "-i",
+            webp_path,
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            "-y",
+            str(mp4_path),
+        ]
+        logger.info("开始 WebP 转码: %s → %s", webp_path, mp4_path)
         try:
-            cmd = [
-                ffmpeg,
-                "-i",
-                webp_path,
-                "-c:v",
-                "libx264",
-                "-pix_fmt",
-                "yuv420p",
-                "-y",  # 覆盖输出文件
-                str(mp4_path),
-            ]
-            logger.info("开始 WebP 转码: %s → %s", webp_path, mp4_path)
             result = subprocess.run(
                 cmd,
                 capture_output=True,
@@ -469,29 +485,95 @@ class Downloader:
                 check=False,
             )
             if result.returncode == 0:
-                # 转码成功，删除原 WebP 文件
-                try:
-                    os.remove(webp_path)
-                except OSError as e:
-                    logger.warning("删除原 WebP 文件失败: %s", e)
-                logger.info("WebP 转码完成: %s", mp4_path)
+                _remove_webp_original(webp_path)
+                logger.info("WebP 转码完成（FFmpeg 直转）: %s", mp4_path)
                 return str(mp4_path)
-            else:
-                logger.error(
-                    "WebP 转码失败: %s, stderr=%s",
-                    webp_path,
-                    result.stderr.decode("utf-8", errors="replace")[:500],
-                )
-                return None
+            logger.warning(
+                "FFmpeg 直转 WebP 失败 (rc=%d)，尝试 Pillow 解码: %s",
+                result.returncode,
+                webp_path,
+            )
         except FileNotFoundError:
             logger.warning("FFmpeg 可执行文件未找到: %s", ffmpeg)
             return None
         except subprocess.TimeoutExpired:
             logger.error("WebP 转码超时 (120s): %s", webp_path)
             return None
+
+        # 策略 2：FFmpeg 直转失败 → Pillow 提取帧 → ffmpeg 编码（支持动画 WebP）
+        import tempfile
+
+        tmp_dir: Path | None = None
+        try:
+            from PIL import Image
+
+            img = Image.open(webp_path)
+            n_frames: int = getattr(img, "n_frames", 1)
+
+            tmp_dir = Path(tempfile.mkdtemp(prefix="webp_conv_"))
+            frames_dir = tmp_dir / "frames"
+            frames_dir.mkdir()
+
+            # 检测帧率
+            fps: float = 10.0
+            if "duration" in img.info:
+                dur = img.info["duration"]
+                if dur and dur > 0:
+                    fps = round(1000.0 / dur)
+
+            logger.info(
+                "WebP 转码（Pillow 解码 %d 帧, %.1f fps）: %s → %s",
+                n_frames,
+                fps,
+                webp_path,
+                mp4_path,
+            )
+            for i in range(n_frames):
+                img.seek(i)
+                frame = img.convert("RGB")
+                frame.save(str(frames_dir / f"frame_{i:04d}.png"))
+
+            # ffmpeg 编码为 MP4
+            cmd = [
+                ffmpeg,
+                "-framerate",
+                str(fps),
+                "-i",
+                str(frames_dir / "frame_%04d.png"),
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+                "-y",
+                str(mp4_path),
+            ]
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                timeout=120,
+                check=False,
+            )
+            if result.returncode != 0:
+                logger.error(
+                    "WebP 转码失败（Pillow 解码后编码）: %s, stderr=%s",
+                    webp_path,
+                    result.stderr.decode("utf-8", errors="replace")[:500],
+                )
+                return None
+
+            _remove_webp_original(webp_path)
+            logger.info("WebP 转码完成（Pillow 解码）: %s", mp4_path)
+            return str(mp4_path)
+
+        except ImportError:
+            logger.error("Pillow 未安装，无法解码 WebP: %s", webp_path)
+            return None
         except Exception as e:
             logger.error("WebP 转码异常: %s, error=%s", webp_path, e)
             return None
+        finally:
+            if tmp_dir is not None and tmp_dir.exists():
+                shutil.rmtree(tmp_dir, ignore_errors=True)
 
     def _maybe_convert_webp(self, file_path: str) -> str:
         """检查文件是否为 WebP 格式，若是则自动转码为 MP4。

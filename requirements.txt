@@ -4,3 +4,5 @@ uvicorn>=0.34
 httpx[http2]>=0.28
 # WebP 转码依赖（提供 FFmpeg 静态二进制）
 imageio-ffmpeg>=0.6
+# WebP 解码（动画 WebP 帧提取，FFmpeg 原生解码器不支持动画）
+Pillow>=10
