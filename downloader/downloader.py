@@ -457,6 +457,8 @@ class Downloader:
             return str(mp4_path)
 
         # 策略 1：先用 FFmpeg 直接转码（单帧 WebP 可正常处理）
+        # -movflags +faststart：moov 原子写入文件头，保证播放器能立即读取
+        # 时长/索引，否则部分播放器只解码首帧、表现为"静态图片"
         cmd = [
             ffmpeg,
             "-i",
@@ -465,6 +467,8 @@ class Downloader:
             "libx264",
             "-pix_fmt",
             "yuv420p",
+            "-movflags",
+            "+faststart",
             "-y",
             str(mp4_path),
         ]
@@ -536,6 +540,8 @@ class Downloader:
                 "libx264",
                 "-pix_fmt",
                 "yuv420p",
+                "-movflags",
+                "+faststart",
                 "-y",
                 str(mp4_path),
             ]
