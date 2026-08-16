@@ -1689,7 +1689,7 @@ class TestWebPConvert:
             assert result is None
 
     def test_convert_webp_to_mp4_success(self, tmp_path: Path) -> None:
-        """Pillow 拆帧 + FFmpeg 编码成功时返回 MP4 路径并删除原 WebP。"""
+        """Pillow 拆帧 + FFmpeg 编码成功时返回 MP4 路径，原 WebP 保留。"""
         webp = tmp_path / "image.webp"
         webp.write_bytes(b"RIFF\x00\x00\x00\x00WEBP")
         mp4 = tmp_path / "image.mp4"
@@ -1706,7 +1706,8 @@ class TestWebPConvert:
         ):
             result = Downloader._convert_webp_to_mp4(str(webp))
         assert result == str(mp4)
-        assert not webp.exists()
+        # 原 WebP 文件保留
+        assert webp.exists()
 
     def test_convert_webp_to_mp4_failure_keeps_original(self, tmp_path: Path) -> None:
         """转码失败时保留原 WebP 文件并返回 None。"""

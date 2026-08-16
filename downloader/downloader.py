@@ -525,7 +525,6 @@ class Downloader:
                 )
                 return None
 
-            _remove_webp_original(webp_path)
             logger.info("WebP 转码完成（Pillow 解码）: %s", mp4_path)
             return str(mp4_path)
 
