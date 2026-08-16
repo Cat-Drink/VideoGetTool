@@ -426,7 +426,7 @@ class Downloader:
 
     @staticmethod
     def _convert_webp_to_mp4(webp_path: str) -> str | None:
-        """将 WebP 文件转码为 MP4。
+        """将 WebP/WebM 文件转码为 MP4。
 
         分两步的 100% 稳妥方案：
         1. 先把 WebP 每一帧导出成 PNG 序列（Pillow 解码）
@@ -434,23 +434,26 @@ class Downloader:
            不依赖 FFmpeg 原生 webp 解码器（其不支持动画 ANIM/ANMF chunks）
         2. 再用 FFmpeg 把图片序列合成 MP4（libx264 + yuv420p + faststart）
 
+        对于 WebM（EBML 容器，VP8/VP9 视频）：FFmpeg 可直接解码，
+        走 FFmpeg 直转路径（无需拆帧），产出 MP4。
+
         - Frame rate 取自 WebP 帧间隔 time-scale（1000/frame_duration），
           一般动图 10-20fps，检测失败时用默认 15fps
         - 先拆帧再合成：不做 FFmpeg 直转，避免直转产物为静态单帧
 
         Args:
-            webp_path: 输入 WebP 文件路径
+            webp_path: 输入 WebP/WebM 文件路径
 
         Returns:
             转码后的 MP4 文件路径，转码失败或 FFmpeg 不可用时返回 None
         """
         ffmpeg = Downloader._find_ffmpeg()
         if ffmpeg is None:
-            logger.warning("FFmpeg 未找到，跳过 WebP 转码: %s", webp_path)
+            logger.warning("FFmpeg 未找到，跳过 WebP/WebM 转码: %s", webp_path)
             return None
 
         src = Path(webp_path)
-        # 如果文件已经是 .mp4 扩展名（但内容为 WebP），加 _converted 后缀避免覆盖
+        # 如果文件已经是 .mp4 扩展名（但内容为 WebP/WebM），加 _converted 后缀避免覆盖
         if src.suffix.lower() == MP4_EXTENSION:
             mp4_path = src.with_name(src.stem + "_converted" + MP4_EXTENSION)
         else:
@@ -461,8 +464,16 @@ class Downloader:
             logger.info("MP4 文件已存在，跳过转码: %s", mp4_path)
             return str(mp4_path)
 
+        is_webm = Downloader._is_webm_file(webp_path)
+
         tmp_dir: Path | None = None
         try:
+            # WebM 是视频容器，FFmpeg 可直接解码转码，无需拆帧
+            if is_webm:
+                return Downloader._convert_webm_via_ffmpeg(
+                    ffmpeg, webp_path, mp4_path, src
+                )
+
             from PIL import Image
 
             img = Image.open(webp_path)
@@ -539,10 +550,11 @@ class Downloader:
                 shutil.rmtree(tmp_dir, ignore_errors=True)
 
     def _maybe_convert_webp(self, file_path: str) -> str:
-        """检查文件是否为 WebP 格式，若是则自动转码为 MP4。
+        """检查文件是否为 WebP/WebM 格式，若是则自动转码为 MP4。
 
         检测基于文件内容的魔数（Magic Bytes），而非扩展名。
-        因为抖音 CDN 返回的 WebP 资源文件名可能以 .mp4 或 .jpg 结尾。
+        因为抖音 CDN 返回的资源文件名可能以 .mp4 或 .jpg 结尾，
+        但实际内容为 WebP（静态/动画图）或 WebM（VP8/VP9 视频）。
 
         Args:
             file_path: 当前文件路径
@@ -554,11 +566,13 @@ class Downloader:
             return file_path
         if not file_path or not os.path.isfile(file_path):
             return file_path
-        # 如果已经是 .mp4 且内容不是 WebP，跳过
-        if file_path.lower().endswith(MP4_EXTENSION) and not self._is_webp_file(file_path):
+        # 如果已经是 .mp4 且内容不是 WebP/WebM，跳过
+        if file_path.lower().endswith(MP4_EXTENSION) and not self._is_convertible_image(
+            file_path
+        ):
             return file_path
-        # 检测文件内容是否真的是 WebP
-        if not self._is_webp_file(file_path):
+        # 检测文件内容是否真的是 WebP 或 WebM
+        if not self._is_convertible_image(file_path):
             return file_path
         converted = self._convert_webp_to_mp4(file_path)
         return converted if converted else file_path
@@ -583,6 +597,98 @@ class Downloader:
             return len(header) >= 12 and header[:4] == b"RIFF" and header[8:12] == b"WEBP"
         except Exception:
             return False
+
+    @classmethod
+    def _is_convertible_image(cls, file_path: str) -> bool:
+        """检测文件是否为可转码为 MP4 的资源（WebP 或 WebM）。
+
+        判断顺序：
+        1. WebP（RIFF....WEBP）—— 动图/静态图
+        2. WebM（EBML 魔数 1A 45 DF A3）—— VP8/VP9 视频
+
+        Args:
+            file_path: 文件路径
+
+        Returns:
+            是 WebP 或 WebM 时返回 True
+        """
+        if cls._is_webp_file(file_path):
+            return True
+        return cls._is_webm_file(file_path)
+
+    @staticmethod
+    def _is_webm_file(file_path: str) -> bool:
+        """通过文件魔数检测是否为 WebM 格式。
+
+        WebM 使用 Matroska EBML 容器，文件头以 0x1A 0x45 0xDF 0xA3 开头。
+
+        Args:
+            file_path: 文件路径
+
+        Returns:
+            是否为 WebM 文件
+        """
+        try:
+            with open(file_path, "rb") as f:
+                header = f.read(4)
+            return header == bytes([0x1A, 0x45, 0xDF, 0xA3])
+        except Exception:
+            return False
+
+    @staticmethod
+    def _convert_webm_via_ffmpeg(
+        ffmpeg: str, webm_path: str, mp4_path: Path, src: Path
+    ) -> str | None:
+        """将 WebM 视频用 FFmpeg 直转编码为 MP4。
+
+        WebM 是视频容器，FFmpeg 原生支持解码（VP8/VP9），无需拆帧，
+        直接转码为 H.264 + yuv420p + faststart 保证播放器兼容。
+
+        Args:
+            ffmpeg: FFmpeg 可执行文件绝对路径
+            webm_path: 输入 WebM 文件路径
+            mp4_path: 输出 MP4 文件路径
+            src: 输入文件 Path（用于日志）
+
+        Returns:
+            MP4 文件路径，转换失败返回 None
+        """
+        cmd = [
+            ffmpeg,
+            "-i",
+            webm_path,
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            "-movflags",
+            "+faststart",
+            "-y",
+            str(mp4_path),
+        ]
+        logger.info("WebM 直转 MP4: %s → %s", src, mp4_path)
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                timeout=120,
+                check=False,
+            )
+        except FileNotFoundError:
+            logger.warning("FFmpeg 可执行文件未找到: %s", ffmpeg)
+            return None
+        except subprocess.TimeoutExpired:
+            logger.error("WebM 转码超时 (120s): %s", webm_path)
+            return None
+        if result.returncode != 0:
+            logger.error(
+                "WebM 转码失败: %s, stderr=%s",
+                webm_path,
+                result.stderr.decode("utf-8", errors="replace")[:500],
+            )
+            return None
+        logger.info("WebM 转码完成（FFmpeg 直转）: %s", mp4_path)
+        return str(mp4_path)
 
     def _finalize_file(self, part_path: Path, final_path: Path) -> str:
         """将 .part 文件重命名为最终文件名。
