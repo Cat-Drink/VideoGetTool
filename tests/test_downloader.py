@@ -1639,10 +1639,10 @@ class TestWebPConvert:
         assert MP4_EXTENSION == ".mp4"
 
     def test_convert_not_called_for_mp4(self, tmp_path: Path) -> None:
-        """非 .webp 文件不触发转码。"""
+        """非 WebP 内容的 .mp4 文件不触发转码。"""
         dl = _make_downloader(webp_auto_convert=True)
         mp4 = tmp_path / "video.mp4"
-        mp4.write_bytes(b"data")
+        mp4.write_bytes(b"not a webp file")
         with patch.object(Downloader, "_convert_webp_to_mp4") as mock_convert:
             result = dl._maybe_convert_webp(str(mp4))
             mock_convert.assert_not_called()
@@ -1659,10 +1659,11 @@ class TestWebPConvert:
             assert result == str(webp)
 
     def test_convert_called_for_webp(self, tmp_path: Path) -> None:
-        """开启开关且文件为 .webp 时触发转码。"""
+        """开启开关且文件为真正的 WebP（魔数检测）时触发转码。"""
         dl = _make_downloader(webp_auto_convert=True)
         webp = tmp_path / "image.webp"
-        webp.write_bytes(b"data")
+        # 写入真实 WebP 魔数（RIFF....WEBP）
+        webp.write_bytes(b"RIFF\x00\x00\x00\x00WEBP")
         mp4 = tmp_path / "image.mp4"
         with patch.object(
             Downloader, "_convert_webp_to_mp4", return_value=str(mp4)
@@ -1675,7 +1676,7 @@ class TestWebPConvert:
         """转码失败时保留原 WebP 文件路径。"""
         dl = _make_downloader(webp_auto_convert=True)
         webp = tmp_path / "image.webp"
-        webp.write_bytes(b"data")
+        webp.write_bytes(b"RIFF\x00\x00\x00\x00WEBP")
         with patch.object(Downloader, "_convert_webp_to_mp4", return_value=None) as mock_convert:
             result = dl._maybe_convert_webp(str(webp))
             mock_convert.assert_called_once()

@@ -427,7 +427,13 @@ class Downloader:
             logger.warning("FFmpeg 未找到，跳过 WebP 转码: %s", webp_path)
             return None
 
-        mp4_path = Path(webp_path).with_suffix(MP4_EXTENSION)
+        src = Path(webp_path)
+        # 如果文件已经是 .mp4 扩展名（但内容为 WebP），加 _converted 后缀避免覆盖
+        if src.suffix.lower() == MP4_EXTENSION:
+            mp4_path = src.with_name(src.stem + "_converted" + MP4_EXTENSION)
+        else:
+            mp4_path = src.with_suffix(MP4_EXTENSION)
+
         # 如果同名的 MP4 已存在，跳过转码（避免重复转码）
         if mp4_path.exists():
             logger.info("MP4 文件已存在，跳过转码: %s", mp4_path)
@@ -480,6 +486,9 @@ class Downloader:
     def _maybe_convert_webp(self, file_path: str) -> str:
         """检查文件是否为 WebP 格式，若是则自动转码为 MP4。
 
+        检测基于文件内容的魔数（Magic Bytes），而非扩展名。
+        因为抖音 CDN 返回的 WebP 资源文件名可能以 .mp4 或 .jpg 结尾。
+
         Args:
             file_path: 当前文件路径
 
@@ -488,10 +497,37 @@ class Downloader:
         """
         if not self._webp_auto_convert:
             return file_path
-        if not file_path.lower().endswith(".webp"):
+        if not file_path or not os.path.isfile(file_path):
+            return file_path
+        # 如果已经是 .mp4 且内容不是 WebP，跳过
+        if file_path.lower().endswith(MP4_EXTENSION) and not self._is_webp_file(file_path):
+            return file_path
+        # 检测文件内容是否真的是 WebP
+        if not self._is_webp_file(file_path):
             return file_path
         converted = self._convert_webp_to_mp4(file_path)
         return converted if converted else file_path
+
+    @staticmethod
+    def _is_webp_file(file_path: str) -> bool:
+        """通过文件魔数检测是否为 WebP 格式。
+
+        WebP 文件头特征：
+        - 字节 0-3: RIFF
+        - 字节 8-11: WEBP
+
+        Args:
+            file_path: 文件路径
+
+        Returns:
+            是否为 WebP 文件
+        """
+        try:
+            with open(file_path, "rb") as f:
+                header = f.read(12)
+            return len(header) >= 12 and header[:4] == b"RIFF" and header[8:12] == b"WEBP"
+        except Exception:
+            return False
 
     def _finalize_file(self, part_path: Path, final_path: Path) -> str:
         """将 .part 文件重命名为最终文件名。
