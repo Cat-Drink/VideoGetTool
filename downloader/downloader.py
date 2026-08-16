@@ -27,6 +27,7 @@ import shutil
 import sqlite3
 import subprocess
 import sys
+import tempfile
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -427,11 +428,15 @@ class Downloader:
     def _convert_webp_to_mp4(webp_path: str) -> str | None:
         """将 WebP 文件转码为 MP4。
 
-        转码策略：
-        1. 先用 FFmpeg 直接尝试转码（单帧 WebP 可正常处理）
-        2. FFmpeg 失败时回退到 Pillow 提取帧 → ffmpeg 编码（支持动画 WebP）
-        因为 FFmpeg 内置的 webp 解码器不支持动画 WebP（ANIM/ANMF chunks），
-        而 Pillow 的 WebP 解码器（基于 libwebp）支持完整动画解码。
+        分两步的 100% 稳妥方案：
+        1. 先把 WebP 每一帧导出成 PNG 序列（Pillow 解码）
+           静态 WebP 仅 1 帧；动画 WebP 通过 Pillow 逐帧 seek 解码，
+           不依赖 FFmpeg 原生 webp 解码器（其不支持动画 ANIM/ANMF chunks）
+        2. 再用 FFmpeg 把图片序列合成 MP4（libx264 + yuv420p + faststart）
+
+        - Frame rate 取自 WebP 帧间隔 time-scale（1000/frame_duration），
+          一般动图 10-20fps，检测失败时用默认 15fps
+        - 先拆帧再合成：不做 FFmpeg 直转，避免直转产物为静态单帧
 
         Args:
             webp_path: 输入 WebP 文件路径
@@ -456,49 +461,6 @@ class Downloader:
             logger.info("MP4 文件已存在，跳过转码: %s", mp4_path)
             return str(mp4_path)
 
-        # 策略 1：先用 FFmpeg 直接转码（单帧 WebP 可正常处理）
-        # -movflags +faststart：moov 原子写入文件头，保证播放器能立即读取
-        # 时长/索引，否则部分播放器只解码首帧、表现为"静态图片"
-        cmd = [
-            ffmpeg,
-            "-i",
-            webp_path,
-            "-c:v",
-            "libx264",
-            "-pix_fmt",
-            "yuv420p",
-            "-movflags",
-            "+faststart",
-            "-y",
-            str(mp4_path),
-        ]
-        logger.info("开始 WebP 转码: %s → %s", webp_path, mp4_path)
-        try:
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                timeout=120,
-                check=False,
-            )
-            if result.returncode == 0:
-                _remove_webp_original(webp_path)
-                logger.info("WebP 转码完成（FFmpeg 直转）: %s", mp4_path)
-                return str(mp4_path)
-            logger.warning(
-                "FFmpeg 直转 WebP 失败 (rc=%d)，尝试 Pillow 解码: %s",
-                result.returncode,
-                webp_path,
-            )
-        except FileNotFoundError:
-            logger.warning("FFmpeg 可执行文件未找到: %s", ffmpeg)
-            return None
-        except subprocess.TimeoutExpired:
-            logger.error("WebP 转码超时 (120s): %s", webp_path)
-            return None
-
-        # 策略 2：FFmpeg 直转失败 → Pillow 提取帧 → ffmpeg 编码（支持动画 WebP）
-        import tempfile
-
         tmp_dir: Path | None = None
         try:
             from PIL import Image
@@ -510,15 +472,17 @@ class Downloader:
             frames_dir = tmp_dir / "frames"
             frames_dir.mkdir()
 
-            # 检测帧率
-            fps: float = 10.0
-            if "duration" in img.info:
-                dur = img.info["duration"]
-                if dur and dur > 0:
-                    fps = round(1000.0 / dur)
+            # 检测帧率：取第一帧间隔（ANMF chunk 的 time-scale），默认 15fps
+            # 动图通常 10-20fps；部分 WebP 帧间隔为 0 时按 15fps 处理
+            fps: float = 15.0
+            img.seek(0)
+            dur = img.info.get("duration", 0)
+            if dur and dur > 0:
+                fps = round(1000.0 / dur)
+            fps = min(max(fps, 1.0), 60.0)
 
             logger.info(
-                "WebP 转码（Pillow 解码 %d 帧, %.1f fps）: %s → %s",
+                "WebP 拆帧转码（Pillow 解码 %d 帧, %.1f fps）: %s → %s",
                 n_frames,
                 fps,
                 webp_path,
@@ -529,7 +493,9 @@ class Downloader:
                 frame = img.convert("RGB")
                 frame.save(str(frames_dir / f"frame_{i:04d}.png"))
 
-            # ffmpeg 编码为 MP4
+            # 图片序列 → MP4（libx264 + yuv420p 保证播放器兼容）
+            # -movflags +faststart：moov 原子写入文件头，保证播放器能立即读取
+            # 时长/索引，否则部分播放器只解码首帧、表现为"静态图片"
             cmd = [
                 ffmpeg,
                 "-framerate",

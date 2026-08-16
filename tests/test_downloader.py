@@ -1689,12 +1689,16 @@ class TestWebPConvert:
             assert result is None
 
     def test_convert_webp_to_mp4_success(self, tmp_path: Path) -> None:
-        """FFmpeg 转码成功时返回 MP4 路径并删除原 WebP。"""
+        """Pillow 拆帧 + FFmpeg 编码成功时返回 MP4 路径并删除原 WebP。"""
         webp = tmp_path / "image.webp"
-        webp.write_bytes(b"webpdata")
+        webp.write_bytes(b"RIFF\x00\x00\x00\x00WEBP")
         mp4 = tmp_path / "image.mp4"
+        mock_img = MagicMock()
+        mock_img.n_frames = 1
+        mock_img.info = {"duration": 100}
         with (
             patch.object(Downloader, "_find_ffmpeg", return_value="ffmpeg"),
+            patch("PIL.Image.open", return_value=mock_img),
             patch(
                 "downloader.downloader.subprocess.run",
                 return_value=MagicMock(returncode=0, stderr=b""),
@@ -1702,15 +1706,18 @@ class TestWebPConvert:
         ):
             result = Downloader._convert_webp_to_mp4(str(webp))
         assert result == str(mp4)
-        # 原 WebP 文件被删除
         assert not webp.exists()
 
     def test_convert_webp_to_mp4_failure_keeps_original(self, tmp_path: Path) -> None:
-        """FFmpeg 转码失败时保留原 WebP 文件并返回 None。"""
+        """转码失败时保留原 WebP 文件并返回 None。"""
         webp = tmp_path / "image.webp"
-        webp.write_bytes(b"webpdata")
+        webp.write_bytes(b"RIFF\x00\x00\x00\x00WEBP")
+        mock_img = MagicMock()
+        mock_img.n_frames = 1
+        mock_img.info = {"duration": 100}
         with (
             patch.object(Downloader, "_find_ffmpeg", return_value="ffmpeg"),
+            patch("PIL.Image.open", return_value=mock_img),
             patch(
                 "downloader.downloader.subprocess.run",
                 return_value=MagicMock(returncode=1, stderr=b"error"),
