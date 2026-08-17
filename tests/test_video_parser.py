@@ -262,6 +262,81 @@ class TestExtractUrls:
         """play_addr 字段缺失 → None。"""
         assert VideoParser._extract_no_watermark_url({}) is None
 
+    def test_no_watermark_url_skips_webp_url(self) -> None:
+        """play_addr 混入 WebP 封面直链时跳过，返回真实视频 URL。"""
+        detail = {
+            "video": {
+                "play_addr": {
+                    "url_list": [
+                        "https://x/cover.webp?mime_type=image_webp",
+                        "https://x/play/a.mp4",
+                    ]
+                }
+            }
+        }
+        assert VideoParser._extract_no_watermark_url(detail) == "https://x/play/a.mp4"
+
+    def test_no_watermark_url_all_webp(self) -> None:
+        """play_addr.url_list 全部为 WebP 且无 bit_rate/download_addr → None。"""
+        detail = {
+            "video": {
+                "play_addr": {
+                    "url_list": ["https://x/cover.webp?mime_type=image_webp"]
+                }
+            }
+        }
+        assert VideoParser._extract_no_watermark_url(detail) is None
+
+    def test_no_watermark_url_prefers_bit_rate(self) -> None:
+        """play_addr 为 WebP 封面时，优先从 bit_rate 提取真实视频直链。"""
+        detail = {
+            "video": {
+                "bit_rate": [
+                    {"play_addr": {"url_list": ["https://x/br/webm?mime_type=video_mp4"]}}
+                ],
+                "download_addr": {"url_list": ["https://x/dl/a.mp4"]},
+                "play_addr": {"url_list": ["https://x/cover.webp?mime_type=image_webp"]},
+            }
+        }
+        assert (
+            VideoParser._extract_no_watermark_url(detail)
+            == "https://x/br/webm?mime_type=video_mp4"
+        )
+
+    def test_no_watermark_url_bit_rate_skips_webp(self) -> None:
+        """bit_rate 某档位为 WebP 时跳过，继续下一档位。"""
+        detail = {
+            "video": {
+                "bit_rate": [
+                    {"play_addr": {"url_list": ["https://x/br/cover.webp"]}},
+                    {"play_addr": {"url_list": ["https://x/br/a.mp4"]}},
+                ],
+                "play_addr": {"url_list": ["https://x/cover.webp"]},
+            }
+        }
+        assert VideoParser._extract_no_watermark_url(detail) == "https://x/br/a.mp4"
+
+    def test_no_watermark_url_falls_back_to_download_addr(self) -> None:
+        """bit_rate 无可用时回退 download_addr。"""
+        detail = {
+            "video": {
+                "bit_rate": None,
+                "download_addr": {
+                    "url_list": ["https://x/dl/playwm/b.webm?mime_type=video_mp4"]
+                },
+                "play_addr": {"url_list": ["https://x/cover.webp"]},
+            }
+        }
+        assert (
+            VideoParser._extract_no_watermark_url(detail)
+            == "https://x/dl/play/b.webm?mime_type=video_mp4"
+        )
+
+    def test_no_watermark_url_bit_rate_absent_use_play_addr(self) -> None:
+        """bit_rate / download_addr 均缺失时使用 play_addr。"""
+        detail = {"video": {"play_addr": {"url_list": ["https://x/play/a.mp4"]}}}
+        assert VideoParser._extract_no_watermark_url(detail) == "https://x/play/a.mp4"
+
     def test_extract_image_urls_empty(self) -> None:
         """images 为空列表 → 返回空列表。"""
         assert VideoParser._extract_image_urls({"images": []}) == []

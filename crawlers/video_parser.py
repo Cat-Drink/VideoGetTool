@@ -201,49 +201,94 @@ class VideoParser:
     def _extract_no_watermark_url(cls, detail: dict) -> str | None:
         """提取视频无水印直链。
 
-        路径（见计划文档 3.4.1 节）:
-            - 主路径: ``video.play_addr.url_list[0]``
-            - 回退: 若 URL 含 ``playwm`` 子串，替换为 ``play`` 得无水印直链
+        ISSUE-20 完整回退链路：
+        1. ``video.bit_rate[*].play_addr``（各清晰度档位，**最可靠**）
+           bit_rate 数组含独立 play_addr，指向真实视频流（WebM/MP4），
+           `play_addr.url_list` 可能返回 WebP 封面占位而 bit_rate 不受影响。
+        2. ``video.download_addr``（独立下载入口）
+        3. ``video.play_addr``（标准路径，部分场景可能返回 WebP 封面）
 
-        ISSUE-20 增强：
-        1. play_addr.url_list 中可能混有 WebP 缩略图直链（URL 含 ``.webp``
-           或 ``mime_type=image_webp``），必须跳过这类条目，否则会下载到
-           无法播放的静态占位图。
-        2. 若 ``play_addr`` 全部为 WebP 缩略图，尝试回退到
-           ``video.download_addr`` 字段（可能包含真实视频直链）。
+        每个步骤均过滤 WebP 缩略图直链（.webp / mime_type=image_webp），
+        处理 playwm→play 替换，确保返回可播放的视频 URL。
 
         参数:
             detail: ``aweme_detail`` 节点。
 
         返回:
-            无水印直链；列表为空或无可用视频 URL 时返回 None。
+            无水印直链；全部来源均无可用视频 URL 时返回 None。
         """
         video = detail.get("video")
         if not isinstance(video, dict):
             return None
 
-        # 尝试从 play_addr 取视频 URL
+        # 1. bit_rate 回退（各清晰度档位，最可靠）
+        url = cls._pick_video_url_from_bit_rate(video)
+        if url is not None:
+            return url
+
+        # 2. download_addr 回退
+        url = cls._pick_video_url_from_addr(video.get("download_addr"), "download_addr")
+        if url is not None:
+            return url
+
+        # 3. play_addr（标准路径，最后兜底）
         url = cls._pick_video_url_from_play_addr(video)
         if url is not None:
             return url
 
-        # 回退：检查 download_addr 字段
-        logger.warning("play_addr 无可用视频直链，尝试 download_addr 回退")
-        download_addr = video.get("download_addr")
-        if isinstance(download_addr, dict):
-            url_list = download_addr.get("url_list")
-            if isinstance(url_list, list):
-                video_urls = [
-                    u for u in url_list if isinstance(u, str) and u and not _is_webp_url(u)
-                ]
-                if video_urls:
-                    url = video_urls[0]
-                    if "playwm" in url:
-                        url = url.replace("playwm", "play")
-                    logger.info("从 download_addr 获取到视频直链: %s", url[:200])
-                    return url
+        logger.warning("bit_rate / download_addr / play_addr 均无可用视频直链")
+        return None
 
-        logger.warning("play_addr 与 download_addr 均无可用视频直链")
+    @classmethod
+    def _pick_video_url_from_addr(cls, addr: object, source: str) -> str | None:
+        """从 addr 结构（含 url_list）中选取可用视频直链。
+
+        跳过 WebP 缩略图直链，处理 playwm→play 替换。
+
+        Args:
+            addr: ``download_addr`` 等含 url_list 的结构
+            source: 来源名称（用于日志）
+
+        Returns:
+            视频直链，无可用时返回 None
+        """
+        url_list = addr.get("url_list") if isinstance(addr, dict) else None
+        if not isinstance(url_list, list) or not url_list:
+            return None
+        video_urls = [u for u in url_list if isinstance(u, str) and u and not _is_webp_url(u)]
+        if not video_urls:
+            logger.warning("%s.url_list 无可用视频直链: %s", source, url_list)
+            return None
+        url = video_urls[0]
+        if "playwm" in url:
+            url = url.replace("playwm", "play")
+        logger.info("从 %s 获取到视频直链: %s", source, url[:200])
+        return url
+
+    @classmethod
+    def _pick_video_url_from_bit_rate(cls, video: dict) -> str | None:
+        """从 video.bit_rate 各档位中选取可用视频直链。
+
+        bit_rate 数组每个元素含独立的 play_addr，指向该清晰度的视频流。
+
+        Args:
+            video: ``aweme_detail.video`` 节点
+
+        Returns:
+            视频直链，无可用时返回 None
+        """
+        bit_rate = video.get("bit_rate")
+        if not isinstance(bit_rate, list) or not bit_rate:
+            logger.warning("video.bit_rate 缺失或为空")
+            return None
+        for i, br in enumerate(bit_rate):
+            if not isinstance(br, dict):
+                continue
+            play_addr = br.get("play_addr")
+            url = cls._pick_video_url_from_addr(play_addr, f"bit_rate[{i}]")
+            if url is not None:
+                return url
+        logger.warning("bit_rate 各档位均无可用视频直链")
         return None
 
     @classmethod
