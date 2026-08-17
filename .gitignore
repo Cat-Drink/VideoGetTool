@@ -27,7 +27,7 @@ _compare_xbogus.py
 dist/
 build/
 *.spec
-!XieFengShiYing.spec
+!backend-sidecar.spec
 
 # Tauri 构建产物（sidecar 二进制由 CI/本地 PyInstaller 生成，不入库）
 frontend/src-tauri/binaries/*.exe

@@ -97,9 +97,9 @@ jobs:
         run: |
           python scripts/download_ffmpeg.py
 
-      - name: PyInstaller 打包 sidecar
+      - name: PyInstaller 打包 sidecar（使用 spec 文件，自动收集 conda DLL）
         run: |
-          pyinstaller --onefile --name backend-sidecar --distpath frontend/src-tauri/binaries --add-data "backend;backend" --add-data "app;app" --add-data "crawlers;crawlers" --add-data "downloader;downloader" --add-data "resources/ffmpeg/ffmpeg.exe;." --hidden-import uvicorn.logging --hidden-import uvicorn.loops.auto --hidden-import uvicorn.loops.asyncio --hidden-import uvicorn.protocols.http.auto --hidden-import uvicorn.protocols.http.h11_impl --hidden-import uvicorn.protocols.websockets.auto --hidden-import uvicorn.protocols.websockets.wsproto_impl --hidden-import uvicorn.lifespan.on --hidden-import starlette.middleware.cors --hidden-import databases --hidden-import sqlalchemy --hidden-import httpx --hidden-import httpcore --hidden-import anyio --hidden-import sniffio --exclude-module tkinter --exclude-module PyQt5 --exclude-module PySide6 --exclude-module matplotlib --exclude-module numpy --exclude-module pandas --console sidecar_launcher.py
+          pyinstaller backend-sidecar.spec --noconfirm --distpath frontend/src-tauri/binaries
 
       - name: 重命名 sidecar（添加平台 triple）
         shell: bash
