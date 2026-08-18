@@ -33,7 +33,7 @@ export default function SettingsPage() {
     if (!config) return;
     setSaving(true);
     try {
-      await api.updateConfig({ concurrency } as any);
+      await api.updateConfig({ concurrency });
       setConfig({ ...config, concurrency });
       addToast("并发数已更新", "success");
     } catch (e) {
@@ -47,7 +47,7 @@ export default function SettingsPage() {
     const dir = await pickDirectory();
     if (dir && config) {
       try {
-        await api.updateConfig({ download_dir: dir } as any);
+        await api.updateConfig({ download_dir: dir });
         setConfig({ ...config, download_dir: dir });
         addToast("下载目录已更新", "success");
       } catch {
