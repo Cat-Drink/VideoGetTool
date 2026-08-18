@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from app.models import now_iso
 from backend.state import ctx
+from crawlers.user_home_crawler import HomeFilters
 
 router = APIRouter()
 
@@ -157,8 +158,6 @@ async def fetch_home(req: FetchHomeRequest):
         sec_user_id = parsed_url.sec_user_id
 
         # 2. 构造过滤条件
-        from crawlers.user_home_crawler import HomeFilters
-
         filters = HomeFilters(
             type_filter="all",
             max_count=req.max_items,

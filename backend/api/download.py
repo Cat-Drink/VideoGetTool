@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 
 from fastapi import APIRouter, HTTPException
@@ -14,6 +15,7 @@ from app.models import Task, TaskItem, TaskItemStatus, TaskStatus, now_iso
 from backend.state import ctx
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 # === 请求/响应模型 ===
@@ -69,28 +71,21 @@ async def list_tasks():
     """获取所有下载任务列表。"""
     if ctx.task_repo is None:
         raise HTTPException(status_code=503, detail="Service not ready")
-    # 简单获取所有任务 - 通过遍历 id 方式
-    # 更高效的方式是加一个 get_all 方法
-    tasks = []
-    # 尝试从 1 到 1000 扫描，找到所有任务
-    for tid in range(1, 1001):
-        task = ctx.task_repo.get(tid)
-        if task is None:
-            continue
-        tasks.append(
-            TaskResponse(
-                id=task.id,
-                source_type=task.source_type,
-                source_url=task.source_url,
-                status=task.status,
-                total_items=task.total_items,
-                completed_items=task.completed_items,
-                created_at=task.created_at,
-                updated_at=task.updated_at,
-                download_dir=task.download_dir,
-            )
+    tasks = ctx.task_repo.get_all()
+    return [
+        TaskResponse(
+            id=task.id,
+            source_type=task.source_type,
+            source_url=task.source_url,
+            status=task.status,
+            total_items=task.total_items,
+            completed_items=task.completed_items,
+            created_at=task.created_at,
+            updated_at=task.updated_at,
+            download_dir=task.download_dir,
         )
-    return tasks
+        for task in tasks
+    ]
 
 
 @router.get("/tasks/{task_id}/items", response_model=list[TaskItemResponse])
@@ -375,8 +370,6 @@ async def verify_completed_files():
     completed_items = ctx.task_item_repo.get_by_status(TaskStatus.COMPLETED.value)
     missing_items: list[dict] = []
     verified_count = 0
-    import logging
-    logger = logging.getLogger(__name__)
 
     for item in completed_items:
         if item.id is None:
