@@ -33,7 +33,7 @@ def _download(url: str, dest: Path) -> None:
     print(f"下载 FFmpeg: {url}")
     print(f"保存到临时文件: {dest}")
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-    with urllib.request.urlopen(req) as response, open(dest, "wb") as out:
+    with urllib.request.urlopen(req, timeout=30) as response, open(dest, "wb") as out:
         total = int(response.headers.get("Content-Length", 0))
         downloaded = 0
         while True:
