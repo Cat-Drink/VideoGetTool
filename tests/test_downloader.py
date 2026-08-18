@@ -192,7 +192,7 @@ class TestPathDerivation:
             author="@张三",
         )
         path = dl._get_final_path(item, "https://example.com/video.mp4")
-        assert path == tmp_path / "@张三一条测试视频.mp4"
+        assert path == tmp_path / "@张三 - 一条测试视频.mp4"
 
     def test_get_final_path_sanitizes_illegal_chars(self, tmp_path: Path) -> None:
         """Windows 非法字符替换为下划线。"""
@@ -203,7 +203,7 @@ class TestPathDerivation:
             author="作者",
         )
         path = dl._get_final_path(item, "https://example.com/video.mp4")
-        assert path.name == "作者标题_含_非法_符_号__字符.mp4"
+        assert path.name == "作者 - 标题_含_非法_符_号__字符.mp4"
 
     def test_get_final_path_truncates_long_title(self, tmp_path: Path) -> None:
         """超长标题截取前 MAX_FILENAME_BASE_LENGTH 字。"""
@@ -214,8 +214,8 @@ class TestPathDerivation:
             author="作者",
         )
         path = dl._get_final_path(item, "https://example.com/video.mp4")
-        assert path.stem == ("作者" + "超长标题" * 30)[:50]
-        assert len(path.stem) == 50
+        assert path.stem == ("作者 - " + "超长标题" * 30)[:50]
+        assert len(path.stem) == 50  # 含分隔符，仍受 MAX_FILENAME_BASE_LENGTH 限制
 
     def test_get_final_path_image_set_uses_author_and_title(self, tmp_path: Path) -> None:
         """image_set 命名（问题归档 #4）：同名文件夹 + -{index} 后缀。"""
@@ -227,7 +227,7 @@ class TestPathDerivation:
             author="@李四",
         )
         path = dl._get_final_path(item, "https://example.com/img.jpg", index=1)
-        assert path == tmp_path / "@李四旅游图集" / "@李四旅游图集-1.jpg"
+        assert path == tmp_path / "@李四 - 旅游图集" / "@李四 - 旅游图集-1.jpg"
 
     def test_get_final_path_no_aweme_id(self, tmp_path: Path) -> None:
         """aweme_id 为 None 时用 item_{id} 替代。"""
