@@ -215,7 +215,7 @@ class Downloader:
         Returns:
             清洗截断后的基础名
         """
-        raw = f"{task_item.author or ''} - {task_item.title or ''}".strip()
+        raw = f"{task_item.author or ''} - {task_item.title or ''}".strip(" -").strip()
         if not raw:
             return task_item.aweme_id or f"item_{task_item.id}"
         cleaned = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", raw)
