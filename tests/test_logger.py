@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import logging.handlers
+import re
 from pathlib import Path
 
 from app import config, logger
@@ -44,7 +45,7 @@ class TestSetupLogger:
         # 应包含模块名
         assert "test_format_module" in content
         # 应包含时间戳（ISO 格式年份）
-        assert "2026" in content
+        assert re.search(r"\b20\d{2}\b", content)
 
     def test_timed_rotating_file_handler_backup_count_7(self, tmp_path: Path, monkeypatch) -> None:
         """TimedRotatingFileHandler 的 backupCount 应为 7。"""
