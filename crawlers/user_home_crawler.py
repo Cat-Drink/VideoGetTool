@@ -385,7 +385,8 @@ class UserHomeCrawler:
             self._invoke_progress(progress_callback, fetched_count)
 
             # 终止条件 1：无更多作品
-            if has_more != 1:
+            # 抖音接口有时返回字符串 "1"/"0"，做防御性 int 转换
+            if int(has_more or 0) != 1:
                 return
             # 终止条件 2：游标未变化，防止死循环
             if next_cursor == max_cursor:
@@ -395,15 +396,24 @@ class UserHomeCrawler:
                     max_cursor,
                 )
                 return
-            # 终止条件 3：游标无效（None 或非整数）
-            if not isinstance(next_cursor, int) or next_cursor < 0:
+            # 终止条件 3：游标无效（None 或非数字）
+            try:
+                next_cursor_val = int(next_cursor or 0)
+            except (ValueError, TypeError):
                 logger.warning(
                     "主页游标无效，终止抓取: sec_user_id=%s cursor=%r",
                     sec_user_id,
                     next_cursor,
                 )
                 return
-            max_cursor = next_cursor
+            if next_cursor_val < 0:
+                logger.warning(
+                    "主页游标为负，终止抓取: sec_user_id=%s cursor=%s",
+                    sec_user_id,
+                    next_cursor_val,
+                )
+                return
+            max_cursor = next_cursor_val
 
     @staticmethod
     def _invoke_progress(
