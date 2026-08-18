@@ -158,6 +158,10 @@ class Downloader:
         # 并发写同一个 .part 文件导致合并阶段文件占用冲突（WinError 32）
         self._file_locks: dict[str, asyncio.Lock] = {}
 
+    def set_semaphore(self, semaphore: asyncio.Semaphore) -> None:
+        """设置并发信号量（由 Scheduler 在并发数调整时调用）。"""
+        self._semaphore = semaphore
+
     # === 路径推导 ===
 
     def _get_download_dir(self, task_item: TaskItem) -> Path:

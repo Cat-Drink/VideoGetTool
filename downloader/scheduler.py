@@ -296,7 +296,7 @@ class Scheduler:
             return
         self._max_concurrent = new_value
         self._semaphore = asyncio.Semaphore(new_value)
-        self._downloader._semaphore = self._semaphore
+        self._downloader.set_semaphore(self._semaphore)
         logger.info("并发数调整为 %d", new_value)
 
     # === 暂停/恢复（设计文档 5.4 节）===
