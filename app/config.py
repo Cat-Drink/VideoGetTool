@@ -26,7 +26,6 @@ DEFAULT_CONCURRENCY: int = 3  # 并发下载数，1-10
 DEFAULT_CHUNK_SIZE: int = 1024 * 1024  # 1MB，单文件分块大小
 DEFAULT_RETRY_COUNT: int = 3  # 失败重试次数，固定不可改
 DEFAULT_METADATA_FORMAT: str = "json"  # 元数据保存格式
-DEFAULT_WEBP_AUTO_CONVERT: bool = True  # WebP 资源自动转码为 MP4
 
 # 聚合默认配置，键为 config 表的 key，值均为字符串
 DEFAULT_CONFIGS: dict[str, str] = {
@@ -35,7 +34,6 @@ DEFAULT_CONFIGS: dict[str, str] = {
     "chunk_size": str(DEFAULT_CHUNK_SIZE),
     "retry_count": str(DEFAULT_RETRY_COUNT),
     "metadata_format": DEFAULT_METADATA_FORMAT,
-    "webp_auto_convert": str(DEFAULT_WEBP_AUTO_CONVERT).lower(),
     "onboarding_done": "false",
 }
 

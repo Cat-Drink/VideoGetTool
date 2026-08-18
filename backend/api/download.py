@@ -162,6 +162,7 @@ async def start_download(req: StartDownloadRequest):
             aweme_id = item_data.get("aweme_id")
             media_url = item_data.get("no_watermark_url") or ""
             image_urls = item_data.get("image_urls") or []
+            item_video_urls = item_data.get("item_video_urls") or []
 
             # 前端未提供真实媒体地址时，用 aweme_id 二次解析 detail 接口获取
             if not (media_url or image_urls) and aweme_id and ctx.video_parser is not None:
@@ -169,15 +170,24 @@ async def start_download(req: StartDownloadRequest):
                     video_info = await ctx.video_parser.parse_video(aweme_id, cookie)
                     if item_type == "image_set" and video_info.image_urls:
                         image_urls = video_info.image_urls
+                        item_video_urls = video_info.item_video_urls
                     elif video_info.no_watermark_url:
                         media_url = video_info.no_watermark_url
                 except Exception:
                     # 解析失败时回退到原始 URL，交由下载器/用户界面反馈
                     pass
 
-            # 图集：换行分隔多张图片 URL；视频：使用无水印直链
-            if item_type == "image_set" and image_urls:
-                download_url = "\n".join(image_urls)
+            # 图集：优先使用逐项视频直链（有视频的项下载视频，其余退枝到图片）
+            if item_type == "image_set":
+                # 仅在有视频直链的项上使用视频 URL，其余保留图片 URL
+                if item_video_urls and len(item_video_urls) == len(image_urls):
+                    download_urls = [
+                        v if v else i
+                        for v, i in zip(item_video_urls, image_urls)
+                    ]
+                else:
+                    download_urls = image_urls
+                download_url = "\n".join(download_urls) if download_urls else ""
             elif media_url:
                 download_url = media_url
             else:

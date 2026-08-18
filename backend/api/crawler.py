@@ -37,6 +37,7 @@ class ParsedURLResponse(BaseModel):
     image_count: int | None = None
     no_watermark_url: str | None = None
     image_urls: list[str] | None = None
+    item_video_urls: list[str] | None = None
     publish_time: str | None = None
     error: str | None = None
 
@@ -104,6 +105,7 @@ async def parse_urls(req: ParseRequest):
                             ),
                             no_watermark_url=video_info.no_watermark_url,
                             image_urls=video_info.image_urls or None,
+                            item_video_urls=video_info.item_video_urls or None,
                             publish_time=video_info.publish_time,
                         )
                     )
@@ -231,6 +233,7 @@ async def preview_url(url: str):
                     image_count=len(video_info.image_urls) if video_info.image_urls else None,
                     no_watermark_url=video_info.no_watermark_url,
                     image_urls=video_info.image_urls or None,
+                    item_video_urls=video_info.item_video_urls or None,
                     publish_time=video_info.publish_time,
                 )
             except Exception as ve:

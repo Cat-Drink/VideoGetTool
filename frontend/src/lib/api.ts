@@ -54,7 +54,6 @@ export interface ConfigResponse {
   concurrency: number;
   chunk_size: number;
   metadata_format: string;
-  webp_auto_convert: boolean;
   onboarding_done: boolean;
 }
 
@@ -92,7 +91,7 @@ export async function fetchTaskItems(taskId: number): Promise<TaskItemResponse[]
 export async function startDownload(params: {
   source_type?: string;
   source_url?: string | null;
-  items?: { url: string; title?: string; author?: string; type?: string; aweme_id?: string; cover_url?: string; image_count?: number; no_watermark_url?: string; image_urls?: string[] }[];
+  items?: { url: string; title?: string; author?: string; type?: string; aweme_id?: string; cover_url?: string; image_count?: number; no_watermark_url?: string; image_urls?: string[]; item_video_urls?: string[] }[];
   download_dir?: string;
 }): Promise<{ task_id: number; message: string }> {
   return request("/download/start", {
@@ -155,6 +154,7 @@ export interface ParseResult {
   image_count?: number;
   no_watermark_url?: string;
   image_urls?: string[];
+  item_video_urls?: string[];
   publish_time?: string;
   error?: string;
 }
