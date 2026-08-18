@@ -158,7 +158,7 @@ const results: ParsedResult[] = (result.items || []).map((r: api.ParseResult, i:
         url: item.url,
         title: item.title,
         author: item.author,
-        type: item.type === "long_video" ? "long_video" : item.type === "image_set" ? "image_set" : "video",
+        type: item.type,
         aweme_id: item.awemeId,
         cover_url: item.coverUrl,
         image_count: item.imageCount,
