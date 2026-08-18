@@ -570,7 +570,8 @@ class VideoParser:
             raise VideoNotFoundError(f"作品详情响应非 JSON: {e}") from e
 
         status_code = payload.get("status_code")
-        if status_code != 0:
+        # 抖音 API 有时返回字符串，做防御性 int 转换
+        if int(status_code or 0) != 0:
             status_msg = payload.get("status_msg") or "未知错误"
             logger.warning(
                 "作品详情业务错误: aweme_id=%s status_code=%s msg=%s",
