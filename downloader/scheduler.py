@@ -78,7 +78,6 @@ class Scheduler:
         on_progress: Callable[[list[ProgressUpdate]], None] | None = None,
         video_parser: VideoParser | None = None,
         cookie_repository: CookieRepository | None = None,
-        webp_auto_convert: bool = True,
     ) -> None:
         """初始化调度器。
 
@@ -93,14 +92,12 @@ class Scheduler:
                 为 None 时图集 4xx 直接失败不重新解析
             cookie_repository: 重新解析时取有效 Cookie（v0.1.7 plan 6.6）；
                 为 None 时图集 4xx 直接失败不重新解析
-            webp_auto_convert: 下载完成后是否将 WebP 文件自动转码为 MP4
         """
         self._conn = conn
         self._item_repo = TaskItemRepository(conn)
         self._task_repo = TaskRepository(conn)
         self._on_item_completed = on_item_completed
         self._on_item_failed = on_item_failed
-        self._webp_auto_convert = webp_auto_convert
 
         # clamp 并发数到 [1, 10]
         self._max_concurrent = max(1, min(max_concurrent, MAX_CONCURRENT_LIMIT))
@@ -131,7 +128,6 @@ class Scheduler:
             conn=conn,
             video_parser=video_parser,
             cookie_repository=cookie_repository,
-            webp_auto_convert=webp_auto_convert,
         )
 
         # 内部状态
@@ -315,14 +311,23 @@ class Scheduler:
             task_item_id: 任务项 ID
         """
         task = self._tasks.get(task_item_id)
+        task_finished = False
         if task is not None and not task.done():
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await task
             self._tasks.pop(task_item_id, None)
-        self._item_repo.update_status(task_item_id, "paused")
-        # 同步父任务展示统计
+            task_finished = True
+
+        # 只在任务仍在 downloading/processing 状态时才写 paused，
+        # 避免在任务恰好完成时覆盖 "completed" 状态
         item = self._item_repo.get(task_item_id)
+        if item is not None and item.status in ("downloading", "processing"):
+            self._item_repo.update_status(task_item_id, "paused")
+        elif task_finished:
+            logger.info("暂停时 task_item id=%s 已完成，跳过状态覆盖", task_item_id)
+
+        # 同步父任务展示统计
         if item is not None:
             self._sync_task_stats(item.task_id)
         logger.info("已暂停 task_item id=%s", task_item_id)
