@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
 from backend.state import ctx
 
@@ -20,13 +20,19 @@ async def health_check():
 
 @router.get("/ready")
 async def readiness_check():
-    """就绪检查：数据库和调度器是否可用。"""
+    """就绪检查：数据库和调度器是否可用。
+
+    未就绪时返回 HTTP 503，便于负载均衡器/编排系统识别。
+    """
     db_ok = ctx.conn is not None
     scheduler_ok = ctx.scheduler is not None
     if db_ok and scheduler_ok:
         return {"status": "ready", "database": "connected", "scheduler": "running"}
-    return {
-        "status": "not_ready",
-        "database": "connected" if db_ok else "disconnected",
-        "scheduler": "running" if scheduler_ok else "stopped",
-    }
+    raise HTTPException(
+        status_code=503,
+        detail={
+            "status": "not_ready",
+            "database": "connected" if db_ok else "disconnected",
+            "scheduler": "running" if scheduler_ok else "stopped",
+        },
+    )

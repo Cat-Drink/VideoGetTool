@@ -133,9 +133,33 @@ _ALL_CREATE_TABLE_SQL: list[str] = [
 # v1 由 init_db 直接建表，无迁移逻辑；后续版本在此追加
 MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {}
 
+# 已知表名白名单：_column_exists 的 table 参数经 f-string 拼接进 PRAGMA，
+# SQLite 的 PRAGMA 不支持参数占位符，用白名单校验防止表名注入
+_VALID_TABLES: frozenset[str] = frozenset(
+    {
+        "tasks",
+        "task_items",
+        "metadata",
+        "cookies",
+        "config",
+        "schema_version",
+    }
+)
+
 
 def _column_exists(conn: sqlite3.Connection, table: str, column: str) -> bool:
-    """检查表中是否存在指定列（幂等迁移辅助）。"""
+    """检查表中是否存在指定列（幂等迁移辅助）。
+
+    Args:
+        conn: SQLite 连接
+        table: 表名（必须是 _VALID_TABLES 白名单中的表）
+        column: 列名
+
+    Raises:
+        ValueError: 表名不在白名单中
+    """
+    if table not in _VALID_TABLES:
+        raise ValueError(f"非法表名: {table!r}")
     rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
     return any(row["name"] == column for row in rows)
 
