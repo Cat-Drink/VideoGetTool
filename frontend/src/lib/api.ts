@@ -6,8 +6,8 @@ const API_BASE = "http://127.0.0.1:18989/api";
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const url = `${API_BASE}${path}`;
   const res = await fetch(url, {
-    headers: { "Content-Type": "application/json", ...options?.headers },
     ...options,
+    headers: { "Content-Type": "application/json", ...options?.headers },
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
