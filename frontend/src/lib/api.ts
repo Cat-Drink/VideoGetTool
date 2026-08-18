@@ -19,6 +19,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 // ============ 数据类型 ============
 
 export type TaskStatus = "pending" | "downloading" | "paused" | "processing" | "completed" | "failed";
+export type CookieStatus = "valid" | "invalid" | "untested";
 
 export interface TaskResponse {
   id: number;

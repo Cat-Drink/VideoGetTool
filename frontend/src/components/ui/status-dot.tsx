@@ -1,5 +1,5 @@
 import { cn } from "../../lib/utils";
-import type { CookieStatus } from "../../types";
+import type { CookieStatus } from "../../lib/api";
 
 const statusColors: Record<CookieStatus, string> = {
   valid: "bg-success",
