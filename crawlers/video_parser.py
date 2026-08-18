@@ -14,7 +14,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Literal
 
@@ -44,11 +44,13 @@ def _is_webp_url(url: str) -> bool:
         URL 指向 WebP 缩略图时返回 True
     """
     url_lower = url.lower()
+    # 第 4 个分支：按 & 切分后逐个做子串匹配（不能直接用 "webp" in list，
+    # 那是精确匹配，对 "mime_type=image_webp" 这类参数恒为 False）
     return (
         ".webp" in url_lower
         or url_lower.endswith("webp")
         or "mime_type=image_webp" in url_lower
-        or "webp" in url_lower.split("&")
+        or any("webp" in part for part in url_lower.split("&"))
     )
 
 
@@ -96,6 +98,24 @@ class VideoInfo:
     collect_count: int
     tags: list[str]
     raw_json: dict
+    # v0.2.x：逐项 URL（视频优先，图片退枝）。与 image_urls 一一对应，
+    # 每个元素优先取 images[*].video 中的真实视频直链，无视频时退枝到图片 URL。
+    item_video_urls: list[str] = field(default_factory=list)
+
+    @property
+    def merged_item_urls(self) -> list[str]:
+        """合并后的逐项下载 URL（视频优先，图片退枝）。
+
+        当 ``item_video_urls`` 与 ``image_urls`` 一一对应时，逐项取
+        ``item_video_urls`` 中非空值（空值退枝到对应图片 URL）；
+        长度不匹配等异常情况直接回退到 ``image_urls``。
+
+        返回:
+            与 ``images`` 数组长度一致的下载 URL 列表。
+        """
+        if self.item_video_urls and len(self.item_video_urls) == len(self.image_urls):
+            return [v if v else i for v, i in zip(self.item_video_urls, self.image_urls)]
+        return list(self.image_urls)
 
 
 # === VideoParser 类（Step 3-4 补充实现） ===
@@ -349,6 +369,53 @@ class VideoParser:
                 urls.append(url)
         return urls
 
+    @classmethod
+    def _extract_item_video_urls(cls, detail: dict) -> list[str]:
+        """从 ``images`` 数组逐项提取视频直链（优先），无视频时退枝到图片 URL。
+
+        v0.2.x：抖音图文可能附带多个视频片段（每个 ``images[*]`` 含独立 ``video``
+        子对象），本方法对每项优先取 ``bit_rate → download_addr → play_addr``
+        回退链路的视频直链，无可用视频时取 ``url_list[0]`` 图片 URL 兜底。
+
+        返回列表与 ``images`` 数组一一对应，长度一致，调用方可直接替换 ``image_urls``
+        作为下载地址。
+
+        参数:
+            detail: ``aweme_detail`` 节点。
+
+        返回:
+            与 ``images`` 数组长度一致的 URL 列表。
+        """
+        images = detail.get("images")
+        if not isinstance(images, list):
+            return []
+        urls: list[str] = []
+        for img in images:
+            if not isinstance(img, dict):
+                urls.append("")
+                continue
+            # 1. 尝试提取 video 子对象中的视频直链
+            video = img.get("video")
+            video_url: str | None = None
+            if isinstance(video, dict):
+                video_url = cls._pick_video_url_from_bit_rate(video)
+                if video_url is None:
+                    video_url = cls._pick_video_url_from_addr(
+                        video.get("download_addr"), "image.download_addr"
+                    )
+                if video_url is None:
+                    video_url = cls._pick_video_url_from_play_addr(video)
+            # 2. 退枝：取图片 URL
+            if video_url is not None:
+                urls.append(video_url)
+            else:
+                url_list = img.get("url_list")
+                if isinstance(url_list, list) and url_list and isinstance(url_list[0], str):
+                    urls.append(url_list[0])
+                else:
+                    urls.append("")
+        return urls
+
     @staticmethod
     def _build_detail_params(aweme_id: str) -> dict:
         """构造 detail 接口业务参数。
@@ -426,10 +493,12 @@ class VideoParser:
         if video_type == "image_set":
             no_watermark_url = cls._extract_no_watermark_url(detail)
             image_urls = cls._extract_image_urls(detail)
+            item_video_urls = cls._extract_item_video_urls(detail)
             duration: str | None = None
         else:
             no_watermark_url = cls._extract_no_watermark_url(detail)
             image_urls = []
+            item_video_urls = []
             raw_duration = detail.get("video", {}).get("duration")
             duration = (
                 cls._format_duration(raw_duration)
@@ -449,6 +518,7 @@ class VideoParser:
             cover_url=cls._extract_cover_url(detail),
             no_watermark_url=no_watermark_url,
             image_urls=image_urls,
+            item_video_urls=item_video_urls,
             publish_time=cls._format_publish_time(detail.get("create_time")),
             like_count=like_count,
             comment_count=comment_count,
