@@ -94,7 +94,10 @@ export default function BatchFetchPage() {
 
   const handleDeleteSelected = () => {
     if (selected.size === 0) return;
-    removeBatchItems(selected);
+    const selectedIndices = new Set(
+      parsed.filter((_, i) => selected.has(i)).map((item) => item.index),
+    );
+    removeBatchItems(selectedIndices);
     setSelected(new Set());
     addToast(`已删除 ${selected.size} 项`, "success");
   };
