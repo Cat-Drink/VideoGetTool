@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
@@ -13,6 +15,11 @@ from backend.state import ctx
 from crawlers.user_home_crawler import HomeFilters
 
 router = APIRouter()
+
+# 批量解析最大 URL 数量限制
+MAX_PARSE_URLS: int = 50
+# 并发解析信号量，防止批量解析时阻塞事件循环
+_PARSE_SEMAPHORE = asyncio.Semaphore(5)
 
 
 # === 请求/响应模型 ===
@@ -69,9 +76,18 @@ async def parse_urls(req: ParseRequest):
     对每个链接做两步：
     1. URLParser.parse() 提取 aweme_id / sec_user_id
     2. VideoParser.parse() 调用 detail 接口获取完整信息（标题、封面、类型等）
+
+    使用信号量限制并发（最多 5 个同时解析），避免阻塞事件循环。
     """
     if ctx.url_parser is None:
         raise HTTPException(status_code=503, detail="Service not ready")
+
+    # 限制最大 URL 数量
+    if len(req.urls) > MAX_PARSE_URLS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"批量解析最多 {MAX_PARSE_URLS} 个链接，当前 {len(req.urls)} 个",
+        )
 
     # 获取一个有效 Cookie
     cookie = ""
@@ -81,19 +97,19 @@ async def parse_urls(req: ParseRequest):
             cookie = valid_cookie.content
             ctx.cookie_repo.update_last_used(valid_cookie.id, now_iso())
 
-    results = []
-    for url in req.urls:
-        try:
-            # Step 1: 解析 URL 提取 aweme_id
-            parsed_url = await ctx.url_parser.parse(url)
-            aweme_id = parsed_url.aweme_id
+    async def _parse_one(url: str) -> ParsedURLResponse:
+        """解析单个 URL（受信号量限制）。"""
+        async with _PARSE_SEMAPHORE:
+            try:
+                # Step 1: 解析 URL 提取 aweme_id
+                parsed_url = await ctx.url_parser.parse(url)
+                aweme_id = parsed_url.aweme_id
 
-            # Step 2: 如果是视频/图集，用 VideoParser 获取详细信息
-            if aweme_id and ctx.video_parser is not None:
-                try:
-                    video_info = await ctx.video_parser.parse_video(aweme_id, cookie)
-                    results.append(
-                        ParsedURLResponse(
+                # Step 2: 如果是视频/图集，用 VideoParser 获取详细信息
+                if aweme_id and ctx.video_parser is not None:
+                    try:
+                        video_info = await ctx.video_parser.parse_video(aweme_id, cookie)
+                        return ParsedURLResponse(
                             url=url,
                             title=video_info.title,
                             author=video_info.author,
@@ -109,37 +125,34 @@ async def parse_urls(req: ParseRequest):
                             item_video_urls=video_info.item_video_urls or None,
                             publish_time=video_info.publish_time,
                         )
-                    )
-                except Exception as ve:
-                    # VideoParser 失败，回退到基本解析信息
-                    error_msg = f"视频详情解析失败: {ve}"
-                    # 对 vsdetail 直播回放链接，提示可能需灯牌等级
-                    if "/vsdetail/" in url:
-                        error_msg += "（直播回放可能需要粉丝灯牌等级）"
-                    results.append(
-                        ParsedURLResponse(
+                    except Exception as ve:
+                        # VideoParser 失败，回退到基本解析信息
+                        error_msg = f"视频详情解析失败: {ve}"
+                        # 对 vsdetail 直播回放链接，提示可能需灯牌等级
+                        if "/vsdetail/" in url:
+                            error_msg += "（直播回放可能需要粉丝灯牌等级）"
+                        return ParsedURLResponse(
                             url=url,
                             type=parsed_url.type,
                             aweme_id=aweme_id,
                             error=error_msg,
                         )
-                    )
-            else:
-                # 主页链接或其他类型
-                results.append(
-                    ParsedURLResponse(
+                else:
+                    # 主页链接或其他类型
+                    return ParsedURLResponse(
                         url=url,
                         type=parsed_url.type,
                         aweme_id=aweme_id,
                     )
-                )
-        except Exception as e:
-            results.append(
-                ParsedURLResponse(
+            except Exception as e:
+                return ParsedURLResponse(
                     url=url,
                     error=str(e),
                 )
-            )
+
+    # 并发解析所有 URL，使用信号量控制并发度
+    tasks = [asyncio.create_task(_parse_one(url)) for url in req.urls]
+    results = await asyncio.gather(*tasks)
     return results
 
 
