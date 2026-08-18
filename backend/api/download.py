@@ -178,7 +178,7 @@ async def start_download(req: StartDownloadRequest):
                 if item_video_urls and len(item_video_urls) == len(image_urls):
                     download_urls = [
                         v if v else i
-                        for v, i in zip(item_video_urls, image_urls)
+                        for v, i in zip(item_video_urls, image_urls, strict=True)
                     ]
                 else:
                     download_urls = image_urls
@@ -378,10 +378,15 @@ async def verify_completed_files():
         if item.local_path:
             # 路径规范化：统一正斜杠、转为绝对路径
             normalized_path = os.path.normpath(os.path.abspath(item.local_path))
-            if os.path.isfile(normalized_path) and os.path.exists(normalized_path) and os.path.getsize(normalized_path) > 0:
+            if (
+                os.path.isfile(normalized_path)
+                and os.path.exists(normalized_path)
+                and os.path.getsize(normalized_path) > 0
+            ):
                 continue
             logger.warning(
-                "文件校验失败: item_id=%s, local_path=%r, normalized=%r, isfile=%s, exists=%s, size=%s",
+                "文件校验失败: item_id=%s, local_path=%r, normalized=%r, "
+                "isfile=%s, exists=%s, size=%s",
                 item.id,
                 item.local_path,
                 normalized_path,

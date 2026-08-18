@@ -48,6 +48,8 @@ omit = [
     "tests/*",
     "ui/*",
     "main.py",
+    "sidecar_launcher.py",
+    "scripts/*",
     "crawlers/__init__.py",
 ]
 

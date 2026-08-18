@@ -389,22 +389,23 @@ class UserHomeCrawler:
             # 抖音接口有时返回字符串 "1"/"0"，做防御性 int 转换
             if int(has_more or 0) != 1:
                 return
-            # 终止条件 2：游标未变化，防止死循环
-            if next_cursor == max_cursor:
-                logger.warning(
-                    "主页游标未变化，终止抓取: sec_user_id=%s cursor=%s",
-                    sec_user_id,
-                    max_cursor,
-                )
-                return
-            # 终止条件 3：游标无效（None 或非数字）
+            # 终止条件 2：游标无效（None 或非数字）
             try:
-                next_cursor_val = int(next_cursor or 0)
+                next_cursor_val = int(next_cursor)
             except (ValueError, TypeError):
                 logger.warning(
                     "主页游标无效，终止抓取: sec_user_id=%s cursor=%r",
                     sec_user_id,
                     next_cursor,
+                )
+                return
+            # 终止条件 3：游标未变化，防止死循环；比较归一化后的数值，
+            # 兼容接口返回字符串 "0"/"100" 的情况。
+            if next_cursor_val == max_cursor:
+                logger.warning(
+                    "主页游标未变化，终止抓取: sec_user_id=%s cursor=%s",
+                    sec_user_id,
+                    max_cursor,
                 )
                 return
             if next_cursor_val < 0:
