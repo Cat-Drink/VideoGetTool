@@ -21,13 +21,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import os
 import re
-import shutil
 import sqlite3
-import subprocess
-import sys
-import tempfile
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -74,16 +71,6 @@ RETRY_BACKOFF_BASE: int = 2
 # 风控限流状态码（与爬虫层一致，触发重试）
 RATE_LIMITED_STATUS_CODES: frozenset[int] = frozenset({461, 412})
 
-# WebP 资源自动转码为 MP4（ISSUE-20）
-# 参与转码的扩展名集合
-WEBP_EXTENSIONS: frozenset[str] = frozenset({".webp"})
-# 转码目标扩展名
-MP4_EXTENSION: str = ".mp4"
-# FFmpeg 可执行文件名（Windows 下自动追加 .exe）
-FFMPEG_EXECUTABLE: str = "ffmpeg"
-# WebP 转码中的任务状态：进度条保持 100%，前端显示"转码中"
-PROCESSING_STATUS: str = "processing"
-
 # v0.1.3：分片下载常量（SEGMENT_SIZE / MAX_SEGMENTS / LARGE_FILE_THRESHOLD）
 # 已移至 downloader/constants.py 集中定义，本模块通过 import 复用
 
@@ -101,18 +88,6 @@ class DownloadResult:
     success: bool
     local_path: str | None = None
     error: str | None = None
-
-
-def _remove_webp_original(webp_path: str) -> None:
-    """删除原 WebP 文件（转码成功后调用）。
-
-    Args:
-        webp_path: 原 WebP 文件路径
-    """
-    try:
-        os.remove(webp_path)
-    except OSError as e:
-        logger.warning("删除原 WebP 文件失败: %s", e)
 
 
 def _select_urls_by_indices(urls: list[str], selected_indices_str: str) -> list[str]:
@@ -158,7 +133,6 @@ class Downloader:
         conn: sqlite3.Connection,
         video_parser: VideoParser | None = None,
         cookie_repository: CookieRepository | None = None,
-        webp_auto_convert: bool = True,
     ) -> None:
         """初始化下载器。
 
@@ -171,7 +145,6 @@ class Downloader:
                 为 None 时图集 4xx 直接失败不重新解析
             cookie_repository: 重新解析时取有效 Cookie（v0.1.7 plan 6.6）；
                 为 None 时图集 4xx 直接失败不重新解析
-            webp_auto_convert: 下载完成后是否将 WebP 文件自动转码为 MP4
         """
         self._progress_reporter = progress_reporter
         self._http_client = http_client
@@ -181,7 +154,6 @@ class Downloader:
         self._task_repo = TaskRepository(conn)
         self._video_parser = video_parser
         self._cookie_repository = cookie_repository
-        self._webp_auto_convert = webp_auto_convert
         # 按目标文件路径的并发锁：防止同名目标（同一视频/图集被多次下载）
         # 并发写同一个 .part 文件导致合并阶段文件占用冲突（WinError 32）
         self._file_locks: dict[str, asyncio.Lock] = {}
@@ -243,7 +215,7 @@ class Downloader:
         Returns:
             清洗截断后的基础名
         """
-        raw = f"{task_item.author or ''}{task_item.title or ''}".strip()
+        raw = f"{task_item.author or ''} - {task_item.title or ''}".strip()
         if not raw:
             return task_item.aweme_id or f"item_{task_item.id}"
         cleaned = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", raw)
@@ -383,313 +355,6 @@ class Downloader:
         logger.info("等待 %d 秒后重试（第 %d 次）", wait_seconds, retry_count)
         await asyncio.sleep(wait_seconds)
 
-    # === 文件操作 ===
-
-    @staticmethod
-    def _find_ffmpeg() -> str | None:
-        """查找 FFmpeg 可执行文件。
-
-        搜索优先级：
-        1. PyInstaller 打包目录（sys._MEIPASS/ffmpeg.exe）—— CI 构建 sidecar 内嵌
-        2. 可执行文件同目录（sys.executable 所在目录/ffmpeg.exe）—— 安装包分发
-        3. 项目 resources/ffmpeg/（本地开发，运行 download_ffmpeg.py 后）
-        4. 系统 PATH（shutil.which）—— 兜底
-
-        Returns:
-            FFmpeg 可执行文件绝对路径，未找到返回 None
-        """
-        # 1) PyInstaller 打包目录（sidecar 内嵌）
-        if hasattr(sys, "_MEIPASS"):
-            bundled = Path(sys._MEIPASS) / "ffmpeg.exe"
-            if bundled.exists():
-                return str(bundled)
-
-        # 2) 可执行文件同目录（安装包分发或直接运行）
-        if sys.executable:
-            exe_dir = Path(sys.executable).parent
-            local = exe_dir / "ffmpeg.exe"
-            if local.exists():
-                return str(local)
-
-        # 3) 项目 resources/ffmpeg/（本地开发，运行 download_ffmpeg.py 后）
-        project_path = (
-            Path(__file__).resolve().parent.parent / "resources" / "ffmpeg" / "ffmpeg.exe"
-        )
-        if project_path.exists():
-            return str(project_path)
-
-        # 4) 系统 PATH（兜底）
-        ffmpeg_name = FFMPEG_EXECUTABLE
-        if os.name == "nt" and not ffmpeg_name.lower().endswith(".exe"):
-            ffmpeg_name += ".exe"
-        return shutil.which(ffmpeg_name)
-
-    @staticmethod
-    def _convert_webp_to_mp4(webp_path: str) -> str | None:
-        """将 WebP/WebM 文件转码为 MP4。
-
-        分两步的 100% 稳妥方案：
-        1. 先把 WebP 每一帧导出成 PNG 序列（Pillow 解码）
-           静态 WebP 仅 1 帧；动画 WebP 通过 Pillow 逐帧 seek 解码，
-           不依赖 FFmpeg 原生 webp 解码器（其不支持动画 ANIM/ANMF chunks）
-        2. 再用 FFmpeg 把图片序列合成 MP4（libx264 + yuv420p + faststart）
-
-        对于 WebM（EBML 容器，VP8/VP9 视频）：FFmpeg 可直接解码，
-        走 FFmpeg 直转路径（无需拆帧），产出 MP4。
-
-        - Frame rate 取自 WebP 帧间隔 time-scale（1000/frame_duration），
-          一般动图 10-20fps，检测失败时用默认 15fps
-        - 先拆帧再合成：不做 FFmpeg 直转，避免直转产物为静态单帧
-
-        Args:
-            webp_path: 输入 WebP/WebM 文件路径
-
-        Returns:
-            转码后的 MP4 文件路径，转码失败或 FFmpeg 不可用时返回 None
-        """
-        ffmpeg = Downloader._find_ffmpeg()
-        if ffmpeg is None:
-            logger.warning("FFmpeg 未找到，跳过 WebP/WebM 转码: %s", webp_path)
-            return None
-
-        src = Path(webp_path)
-        # 如果文件已经是 .mp4 扩展名（但内容为 WebP/WebM），加 _converted 后缀避免覆盖
-        if src.suffix.lower() == MP4_EXTENSION:
-            mp4_path = src.with_name(src.stem + "_converted" + MP4_EXTENSION)
-        else:
-            mp4_path = src.with_suffix(MP4_EXTENSION)
-
-        # 如果同名的 MP4 已存在，跳过转码（避免重复转码）
-        if mp4_path.exists():
-            logger.info("MP4 文件已存在，跳过转码: %s", mp4_path)
-            return str(mp4_path)
-
-        is_webm = Downloader._is_webm_file(webp_path)
-
-        tmp_dir: Path | None = None
-        try:
-            # WebM 是视频容器，FFmpeg 可直接解码转码，无需拆帧
-            if is_webm:
-                return Downloader._convert_webm_via_ffmpeg(
-                    ffmpeg, webp_path, mp4_path, src
-                )
-
-            from PIL import Image
-
-            img = Image.open(webp_path)
-            n_frames: int = getattr(img, "n_frames", 1)
-
-            tmp_dir = Path(tempfile.mkdtemp(prefix="webp_conv_"))
-            frames_dir = tmp_dir / "frames"
-            frames_dir.mkdir()
-
-            # 检测帧率：取第一帧间隔（ANMF chunk 的 time-scale），默认 15fps
-            # 动图通常 10-20fps；部分 WebP 帧间隔为 0 时按 15fps 处理
-            fps: float = 15.0
-            img.seek(0)
-            dur = img.info.get("duration", 0)
-            if dur and dur > 0:
-                fps = round(1000.0 / dur)
-            fps = min(max(fps, 1.0), 60.0)
-
-            logger.info(
-                "WebP 拆帧转码（Pillow 解码 %d 帧, %.1f fps）: %s → %s",
-                n_frames,
-                fps,
-                webp_path,
-                mp4_path,
-            )
-            for i in range(n_frames):
-                img.seek(i)
-                frame = img.convert("RGB")
-                frame.save(str(frames_dir / f"frame_{i:04d}.png"))
-
-            # 图片序列 → MP4（libx264 + yuv420p 保证播放器兼容）
-            # -movflags +faststart：moov 原子写入文件头，保证播放器能立即读取
-            # 时长/索引，否则部分播放器只解码首帧、表现为"静态图片"
-            cmd = [
-                ffmpeg,
-                "-framerate",
-                str(fps),
-                "-i",
-                str(frames_dir / "frame_%04d.png"),
-                "-c:v",
-                "libx264",
-                "-pix_fmt",
-                "yuv420p",
-                "-movflags",
-                "+faststart",
-                "-y",
-                str(mp4_path),
-            ]
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                timeout=120,
-                check=False,
-            )
-            if result.returncode != 0:
-                logger.error(
-                    "WebP 转码失败（Pillow 解码后编码）: %s, stderr=%s",
-                    webp_path,
-                    result.stderr.decode("utf-8", errors="replace")[:500],
-                )
-                return None
-
-            logger.info("WebP 转码完成（Pillow 解码）: %s", mp4_path)
-            return str(mp4_path)
-
-        except ImportError:
-            logger.error("Pillow 未安装，无法解码 WebP: %s", webp_path)
-            return None
-        except Exception as e:
-            logger.error("WebP 转码异常: %s, error=%s", webp_path, e)
-            return None
-        finally:
-            if tmp_dir is not None and tmp_dir.exists():
-                shutil.rmtree(tmp_dir, ignore_errors=True)
-
-    def _maybe_convert_webp(self, file_path: str) -> str:
-        """检查文件是否为 WebP/WebM 格式，若是则自动转码为 MP4。
-
-        检测基于文件内容的魔数（Magic Bytes），而非扩展名。
-        因为抖音 CDN 返回的资源文件名可能以 .mp4 或 .jpg 结尾，
-        但实际内容为 WebP（静态/动画图）或 WebM（VP8/VP9 视频）。
-
-        Args:
-            file_path: 当前文件路径
-
-        Returns:
-            转码后的文件路径（若未转码则返回原路径）
-        """
-        if not self._webp_auto_convert:
-            return file_path
-        if not file_path or not os.path.isfile(file_path):
-            return file_path
-        # 如果已经是 .mp4 且内容不是 WebP/WebM，跳过
-        if file_path.lower().endswith(MP4_EXTENSION) and not self._is_convertible_image(
-            file_path
-        ):
-            return file_path
-        # 检测文件内容是否真的是 WebP 或 WebM
-        if not self._is_convertible_image(file_path):
-            return file_path
-        converted = self._convert_webp_to_mp4(file_path)
-        return converted if converted else file_path
-
-    @staticmethod
-    def _is_webp_file(file_path: str) -> bool:
-        """通过文件魔数检测是否为 WebP 格式。
-
-        WebP 文件头特征：
-        - 字节 0-3: RIFF
-        - 字节 8-11: WEBP
-
-        Args:
-            file_path: 文件路径
-
-        Returns:
-            是否为 WebP 文件
-        """
-        try:
-            with open(file_path, "rb") as f:
-                header = f.read(12)
-            return len(header) >= 12 and header[:4] == b"RIFF" and header[8:12] == b"WEBP"
-        except Exception:
-            return False
-
-    @classmethod
-    def _is_convertible_image(cls, file_path: str) -> bool:
-        """检测文件是否为可转码为 MP4 的资源（WebP 或 WebM）。
-
-        判断顺序：
-        1. WebP（RIFF....WEBP）—— 动图/静态图
-        2. WebM（EBML 魔数 1A 45 DF A3）—— VP8/VP9 视频
-
-        Args:
-            file_path: 文件路径
-
-        Returns:
-            是 WebP 或 WebM 时返回 True
-        """
-        if cls._is_webp_file(file_path):
-            return True
-        return cls._is_webm_file(file_path)
-
-    @staticmethod
-    def _is_webm_file(file_path: str) -> bool:
-        """通过文件魔数检测是否为 WebM 格式。
-
-        WebM 使用 Matroska EBML 容器，文件头以 0x1A 0x45 0xDF 0xA3 开头。
-
-        Args:
-            file_path: 文件路径
-
-        Returns:
-            是否为 WebM 文件
-        """
-        try:
-            with open(file_path, "rb") as f:
-                header = f.read(4)
-            return header == bytes([0x1A, 0x45, 0xDF, 0xA3])
-        except Exception:
-            return False
-
-    @staticmethod
-    def _convert_webm_via_ffmpeg(
-        ffmpeg: str, webm_path: str, mp4_path: Path, src: Path
-    ) -> str | None:
-        """将 WebM 视频用 FFmpeg 直转编码为 MP4。
-
-        WebM 是视频容器，FFmpeg 原生支持解码（VP8/VP9），无需拆帧，
-        直接转码为 H.264 + yuv420p + faststart 保证播放器兼容。
-
-        Args:
-            ffmpeg: FFmpeg 可执行文件绝对路径
-            webm_path: 输入 WebM 文件路径
-            mp4_path: 输出 MP4 文件路径
-            src: 输入文件 Path（用于日志）
-
-        Returns:
-            MP4 文件路径，转换失败返回 None
-        """
-        cmd = [
-            ffmpeg,
-            "-i",
-            webm_path,
-            "-c:v",
-            "libx264",
-            "-pix_fmt",
-            "yuv420p",
-            "-movflags",
-            "+faststart",
-            "-y",
-            str(mp4_path),
-        ]
-        logger.info("WebM 直转 MP4: %s → %s", src, mp4_path)
-        try:
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                timeout=120,
-                check=False,
-            )
-        except FileNotFoundError:
-            logger.warning("FFmpeg 可执行文件未找到: %s", ffmpeg)
-            return None
-        except subprocess.TimeoutExpired:
-            logger.error("WebM 转码超时 (120s): %s", webm_path)
-            return None
-        if result.returncode != 0:
-            logger.error(
-                "WebM 转码失败: %s, stderr=%s",
-                webm_path,
-                result.stderr.decode("utf-8", errors="replace")[:500],
-            )
-            return None
-        logger.info("WebM 转码完成（FFmpeg 直转）: %s", mp4_path)
-        return str(mp4_path)
-
     def _finalize_file(self, part_path: Path, final_path: Path) -> str:
         """将 .part 文件重命名为最终文件名。
 
@@ -742,8 +407,6 @@ class Downloader:
         Returns:
             (start, end) 字节范围列表，end 为包含的末字节偏移
         """
-        import math
-
         segment_count = min(math.ceil(total_bytes / SEGMENT_SIZE), MAX_SEGMENTS)
         segment_size = math.ceil(total_bytes / segment_count)
         segments: list[tuple[int, int]] = []
@@ -883,15 +546,6 @@ class Downloader:
 
             # 所有分片完成 → 合并
             final_str = self._merge_segments(part_paths, final_path)
-            # WebP 自动转码（ISSUE-20）
-            # 转码前上报 processing 进度：进度条保持 100%，前端显示"转码中"
-            self._progress_reporter.update(
-                task_item.id,
-                total_bytes,
-                total_bytes,
-                status=PROCESSING_STATUS,
-            )
-            final_str = self._maybe_convert_webp(final_str)
             self._mark_status(task_item.id, "completed", local_path=final_str)
             # 最终持久化一次
             self._persist_progress(task_item.id, total_bytes, total_bytes)
@@ -940,16 +594,24 @@ class Downloader:
             target_dir = final_path.parent
             target_dir.mkdir(parents=True, exist_ok=True)
             # 图集：按目标文件夹串行化，防止同名图集并发写冲突
-            lock = self._file_locks.setdefault(str(target_dir), asyncio.Lock())
+            lock_key = str(target_dir)
+            lock = self._file_locks.setdefault(lock_key, asyncio.Lock())
             async with lock:
-                return await self._download_image_set(task_item, urls, target_dir)
+                try:
+                    return await self._download_image_set(task_item, urls, target_dir)
+                finally:
+                    self._file_locks.pop(lock_key, None)
 
         final_path = self._get_final_path(task_item, task_item.url)
         final_path.parent.mkdir(parents=True, exist_ok=True)
         # 视频：按目标文件串行化，防止同名目标并发写 .part 冲突
-        lock = self._file_locks.setdefault(str(final_path), asyncio.Lock())
+        lock_key = str(final_path)
+        lock = self._file_locks.setdefault(lock_key, asyncio.Lock())
         async with lock:
-            return await self._download_single_file(task_item, task_item.url, final_path)
+            try:
+                return await self._download_single_file(task_item, task_item.url, final_path)
+            finally:
+                self._file_locks.pop(lock_key, None)
 
     async def _download_single_file(
         self,
@@ -1000,6 +662,9 @@ class Downloader:
                 if downloaded_bytes > 0:
                     headers["Range"] = f"bytes={downloaded_bytes}-"
 
+                # 总字节数：断点续传已下载部分 + 本次 Content-Length
+                # 在 try 外初始化，取消时简化为 0 兜底
+                total_bytes = 0
                 try:
                     async with self._http_client.stream("GET", url, headers=headers) as response:
                         # ISSUE-20 诊断：记录响应 Content-Type，识别 CDN 返回
@@ -1042,7 +707,10 @@ class Downloader:
                             return DownloadResult(success=False, error=reason)
 
                         # 流式接收
-                        content_length = int(response.headers.get("Content-Length", 0))
+                        try:
+                            content_length = int(response.headers.get("Content-Length", 0))
+                        except (ValueError, TypeError):
+                            content_length = 0
                         total_bytes = downloaded_bytes + content_length
                         downloaded_bytes = await self._stream_to_file(
                             response,
@@ -1055,16 +723,6 @@ class Downloader:
 
                     # 下载完成 → 重命名 → 标记完成
                     final_str = self._finalize_file(part_path, final_path)
-                    # WebP 自动转码（ISSUE-20）
-                    if mark_status:
-                        # 转码前上报 processing 进度：进度条保持 100%，前端显示"转码中"
-                        self._progress_reporter.update(
-                            task_item.id,
-                            downloaded_bytes,
-                            total_bytes,
-                            status=PROCESSING_STATUS,
-                        )
-                    final_str = self._maybe_convert_webp(final_str)
                     if mark_status:
                         self._mark_status(task_item.id, "completed", local_path=final_str)
                     logger.info("下载完成 task_item id=%s path=%s", task_item.id, final_str)
@@ -1074,8 +732,7 @@ class Downloader:
                     # 暂停/取消：持久化进度，保留 .part 文件，不修改 status（归 Scheduler）
                     # _stream_to_file 可能已持久化更准确的值，此处读 .part 实际大小兜底
                     actual_bytes = part_path.stat().st_size if part_path.exists() else 0
-                    total = total_bytes if "total_bytes" in locals() else 0
-                    self._persist_progress(task_item.id, actual_bytes, total)
+                    self._persist_progress(task_item.id, actual_bytes, total_bytes)
                     logger.info(
                         "下载被取消 task_item id=%s 已保存进度 %d bytes",
                         task_item.id,
