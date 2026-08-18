@@ -160,12 +160,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # 6. 启动调度器
     await ctx.scheduler.start()
     await ctx.scheduler.restore_pending_tasks()
+
+    # 7. 启动共享 WebSocket 进度轮询任务
+    await ws_router._start_shared_push()
     log.info("调度器已启动，断点续传已恢复")
 
     yield  # FastAPI 开始处理请求
 
     # 关闭阶段
     log.info("=== 关闭清理 ===")
+    await ws_router._stop_shared_push()
     await ctx.scheduler.stop()
     with contextlib.suppress(Exception):
         ctx.conn.close()
