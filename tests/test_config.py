@@ -33,9 +33,9 @@ class TestConfigPaths:
 class TestDefaultConfigs:
     """默认配置测试。"""
 
-    def test_default_configs_has_6_keys(self) -> None:
-        """DEFAULT_CONFIGS 应包含 6 个键。"""
-        assert len(config.DEFAULT_CONFIGS) == 6
+    def test_default_configs_has_10_keys(self) -> None:
+        """DEFAULT_CONFIGS 应包含 10 个键。"""
+        assert len(config.DEFAULT_CONFIGS) == 10
 
     def test_default_configs_values_are_strings(self) -> None:
         """DEFAULT_CONFIGS 的值均为字符串。"""
@@ -51,6 +51,10 @@ class TestDefaultConfigs:
             "retry_count",
             "metadata_format",
             "onboarding_done",
+            "notification_enabled",
+            "sound_enabled",
+            "sound_choice",
+            "sound_volume",
         }
         assert set(config.DEFAULT_CONFIGS.keys()) == expected_keys
 

@@ -25,6 +25,10 @@ class ConfigResponse(BaseModel):
     chunk_size: int
     metadata_format: str
     onboarding_done: bool
+    notification_enabled: bool
+    sound_enabled: bool
+    sound_choice: str
+    sound_volume: float
 
 
 class UpdateConfigRequest(BaseModel):
@@ -35,6 +39,10 @@ class UpdateConfigRequest(BaseModel):
     chunk_size: int | None = None
     metadata_format: str | None = None
     onboarding_done: bool | None = None
+    notification_enabled: bool | None = None
+    sound_enabled: bool | None = None
+    sound_choice: str | None = None
+    sound_volume: float | None = None
 
 
 # === API 端点 ===
@@ -52,6 +60,10 @@ async def get_config():
         chunk_size=int(config.get("chunk_size", "1048576")),
         metadata_format=config.get("metadata_format", "json"),
         onboarding_done=config.get("onboarding_done", "false") == "true",
+        notification_enabled=config.get("notification_enabled", "true") == "true",
+        sound_enabled=config.get("sound_enabled", "true") == "true",
+        sound_choice=config.get("sound_choice", "default"),
+        sound_volume=float(config.get("sound_volume", "0.5")),
     )
 
 
@@ -74,6 +86,14 @@ async def update_config(req: UpdateConfigRequest):
         ctx.config_repo.set("metadata_format", req.metadata_format)
     if req.onboarding_done is not None:
         ctx.config_repo.set("onboarding_done", "true" if req.onboarding_done else "false")
+    if req.notification_enabled is not None:
+        ctx.config_repo.set("notification_enabled", "true" if req.notification_enabled else "false")
+    if req.sound_enabled is not None:
+        ctx.config_repo.set("sound_enabled", "true" if req.sound_enabled else "false")
+    if req.sound_choice is not None:
+        ctx.config_repo.set("sound_choice", req.sound_choice)
+    if req.sound_volume is not None:
+        ctx.config_repo.set("sound_volume", str(req.sound_volume))
 
     return {"message": "配置已更新"}
 

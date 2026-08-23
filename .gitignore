@@ -23,6 +23,9 @@ _verify_signer_live.py
 _compare_xbogus.py
 .ref_xbogus.py
 
+# AgentTeams 工作目录
+.agent-teams/
+
 # 打包产物
 dist/
 build/
