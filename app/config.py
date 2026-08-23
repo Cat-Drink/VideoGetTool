@@ -32,6 +32,7 @@ DEFAULT_NOTIFICATION_ENABLED: bool = True  # 任务完成弹窗通知，默认�
 DEFAULT_SOUND_ENABLED: bool = True  # 任务完成音效，默认开启
 DEFAULT_SOUND_CHOICE: str = "default"  # 音效选择：default / soft / cheerful
 DEFAULT_SOUND_VOLUME: float = 0.5  # 音效音量 0.0-1.0
+DEFAULT_CUSTOM_SOUND_URL: str = ""  # 自定义 MP3 音效文件路径
 
 # 聚合默认配置，键为 config 表的 key，值均为字符串
 DEFAULT_CONFIGS: dict[str, str] = {
@@ -45,6 +46,7 @@ DEFAULT_CONFIGS: dict[str, str] = {
     "sound_enabled": "true" if DEFAULT_SOUND_ENABLED else "false",
     "sound_choice": DEFAULT_SOUND_CHOICE,
     "sound_volume": str(DEFAULT_SOUND_VOLUME),
+    "custom_sound_url": DEFAULT_CUSTOM_SOUND_URL,
 }
 
 

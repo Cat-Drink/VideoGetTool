@@ -29,6 +29,7 @@ class ConfigResponse(BaseModel):
     sound_enabled: bool
     sound_choice: str
     sound_volume: float
+    custom_sound_url: str
 
 
 class UpdateConfigRequest(BaseModel):
@@ -43,6 +44,7 @@ class UpdateConfigRequest(BaseModel):
     sound_enabled: bool | None = None
     sound_choice: str | None = None
     sound_volume: float | None = None
+    custom_sound_url: str | None = None
 
 
 # === API 端点 ===
@@ -64,6 +66,7 @@ async def get_config():
         sound_enabled=config.get("sound_enabled", "true") == "true",
         sound_choice=config.get("sound_choice", "default"),
         sound_volume=float(config.get("sound_volume", "0.5")),
+        custom_sound_url=config.get("custom_sound_url", ""),
     )
 
 
@@ -94,6 +97,8 @@ async def update_config(req: UpdateConfigRequest):
         ctx.config_repo.set("sound_choice", req.sound_choice)
     if req.sound_volume is not None:
         ctx.config_repo.set("sound_volume", str(req.sound_volume))
+    if req.custom_sound_url is not None:
+        ctx.config_repo.set("custom_sound_url", req.custom_sound_url)
 
     return {"message": "配置已更新"}
 

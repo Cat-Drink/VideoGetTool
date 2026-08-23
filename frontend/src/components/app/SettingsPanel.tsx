@@ -72,6 +72,7 @@ export default function SettingsPanel() {
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [soundChoice, setSoundChoice] = useState("default");
   const [soundVolume, setSoundVolume] = useState(0.5);
+  const [customSoundUrl, setCustomSoundUrl] = useState("");
   const [savingNotify, setSavingNotify] = useState(false);
   const [appVersion, setAppVersion] = useState("v0.3.0");
   const [openSection, setOpenSection] = useState<string | null>("account");
@@ -95,6 +96,7 @@ export default function SettingsPanel() {
       setSoundEnabled(cfg.sound_enabled);
       setSoundChoice(cfg.sound_choice);
       setSoundVolume(cfg.sound_volume);
+      setCustomSoundUrl(cfg.custom_sound_url ?? "");
     } catch (e) {
       addToast("加载配置失败", "error");
     } finally {
@@ -142,6 +144,7 @@ export default function SettingsPanel() {
         sound_enabled: soundEnabled,
         sound_choice: soundChoice,
         sound_volume: soundVolume,
+        custom_sound_url: customSoundUrl,
       });
       setConfig({
         ...config,
@@ -149,6 +152,7 @@ export default function SettingsPanel() {
         sound_enabled: soundEnabled,
         sound_choice: soundChoice,
         sound_volume: soundVolume,
+        custom_sound_url: customSoundUrl,
       });
       addToast("通知设置已保存", "success");
     } catch (e) {
@@ -348,8 +352,49 @@ export default function SettingsPanel() {
                   <option value="default">默认音效</option>
                   <option value="soft">轻柔</option>
                   <option value="cheerful">活泼</option>
+                  <option value="custom">自定义 MP3</option>
                 </select>
               </div>
+              {soundChoice === "custom" && (
+                <div className="border-t border-border-light" />
+              )}
+              {soundChoice === "custom" && (
+                <div className="flex items-center justify-between h-12">
+                  <span className="text-sm text-text-primary">自定义音效文件</span>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      className="text-sm w-48 bg-bg-base border border-border-light rounded px-2 py-1"
+                      placeholder="选择 MP3 文件..."
+                      value={customSoundUrl}
+                      onChange={(e) => setCustomSoundUrl(e.target.value)}
+                      readOnly
+                    />
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={async () => {
+                        try {
+                          const { open } = await import("@tauri-apps/plugin-dialog");
+                          const selected = await open({
+                            filters: [{ name: "MP3 音效", extensions: ["mp3"] }],
+                            multiple: false,
+                          });
+                          if (selected) {
+                            setCustomSoundUrl(selected);
+                          }
+                        } catch (e) {
+                          // 非 Tauri 环境或对话框失败
+                          const path = window.prompt("请输入 MP3 文件路径：");
+                          if (path) setCustomSoundUrl(path);
+                        }
+                      }}
+                    >
+                      选择文件
+                    </Button>
+                  </div>
+                </div>
+              )}
               <div className="border-t border-border-light" />
               <div className="flex items-center justify-between h-12">
                 <span className="text-sm text-text-primary">音效音量</span>

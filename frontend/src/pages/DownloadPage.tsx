@@ -11,6 +11,38 @@ import * as api from "../lib/api";
 import { useNavigate } from "react-router-dom";
 import type { WsMessage } from "../hooks/useWebSocket";
 import { playNotificationSound } from "../lib/sound";
+import { sendSystemNotification } from "../lib/notify";
+
+/** 从配置加载的通知设置缓存 */
+interface NotifySettings {
+  notificationEnabled: boolean;
+  soundEnabled: boolean;
+  soundChoice: "default" | "soft" | "cheerful" | "custom";
+  soundVolume: number;
+  customSoundUrl: string;
+}
+
+/** 读取通知配置（失败时返回默认值） */
+async function loadNotifySettings(): Promise<NotifySettings> {
+  try {
+    const cfg = await api.fetchConfig();
+    return {
+      notificationEnabled: cfg.notification_enabled,
+      soundEnabled: cfg.sound_enabled,
+      soundChoice: cfg.sound_choice as NotifySettings["soundChoice"],
+      soundVolume: cfg.sound_volume,
+      customSoundUrl: cfg.custom_sound_url ?? "",
+    };
+  } catch {
+    return {
+      notificationEnabled: true,
+      soundEnabled: true,
+      soundChoice: "default",
+      soundVolume: 0.5,
+      customSoundUrl: "",
+    };
+  }
+}
 
 export default function DownloadPage() {
   const navigate = useNavigate();
@@ -24,6 +56,7 @@ export default function DownloadPage() {
   const { addToast } = useToastStore();
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const prevStatusRef = useRef<Map<number, string>>(new Map());
+  const notifiedTaskRef = useRef<Set<number>>(new Set());
 
   const handleDeleteItem = async (itemId: number) => {
     try {
@@ -39,12 +72,69 @@ export default function DownloadPage() {
     loadTasks();
   }, [loadTasks]);
 
-  // WebSocket 进度更新
+  // WebSocket 消息处理
   const onWsMessage = useCallback(
-    (msg: WsMessage) => {
+    async (msg: WsMessage) => {
+      // 处理 Task 级完成/失败事件（聚合通知）
+      if (msg.type === "task_completed") {
+        const task_id = msg.task_id!;
+        const completed_count = msg.completed_count!;
+        const total_count = msg.total_count!;
+        // 避免重复通知同一个 Task
+        if (notifiedTaskRef.current.has(task_id)) return;
+        notifiedTaskRef.current.add(task_id);
+
+        const settings = await loadNotifySettings();
+
+        // 系统通知
+        if (settings.notificationEnabled) {
+          sendSystemNotification(
+            "下载任务完成",
+            `任务 #${task_id}：${completed_count}/${total_count} 项下载成功`,
+          );
+        }
+        // Toast 通知
+        addToast(`任务 #${task_id} 全部完成（${completed_count}/${total_count}）`, "success");
+        // 音效
+        if (settings.soundEnabled) {
+          playNotificationSound("completed", {
+            choice: settings.soundChoice,
+            volume: settings.soundVolume,
+            customUrl: settings.customSoundUrl || undefined,
+          });
+        }
+        return;
+      }
+
+      if (msg.type === "task_failed") {
+        const task_id = msg.task_id!;
+        const failed_count = msg.failed_count!;
+        const total_count = msg.total_count!;
+        if (notifiedTaskRef.current.has(task_id)) return;
+        notifiedTaskRef.current.add(task_id);
+
+        const settings = await loadNotifySettings();
+
+        if (settings.notificationEnabled) {
+          sendSystemNotification(
+            "下载任务失败",
+            `任务 #${task_id}：${failed_count}/${total_count} 项下载失败`,
+          );
+        }
+        addToast(`任务 #${task_id} 下载失败（${failed_count}/${total_count}）`, "error");
+        if (settings.soundEnabled) {
+          playNotificationSound("failed", {
+            choice: settings.soundChoice,
+            volume: settings.soundVolume,
+            customUrl: settings.customSoundUrl || undefined,
+          });
+        }
+        return;
+      }
+
+      // 处理逐项进度更新（保留原有逻辑）
       if (msg.type === "progress" && msg.updates) {
         for (const update of msg.updates) {
-          // 检测状态变更：从非终态变为 completed/failed
           const prevStatus = prevStatusRef.current.get(update.task_item_id);
           const newStatus = update.status;
           const isTerminal = (s: string) => s === "completed" || s === "failed";
@@ -57,7 +147,6 @@ export default function DownloadPage() {
             );
           }
 
-          // 更新状态追踪
           prevStatusRef.current.set(update.task_item_id, newStatus);
           applyProgressUpdate(update);
         }
