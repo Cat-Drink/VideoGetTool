@@ -14,13 +14,10 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
-from app import config
 from app.logger import get_logger
 from crawlers import api_spec
 from crawlers.exceptions import VideoNotFoundError
@@ -31,30 +28,6 @@ if TYPE_CHECKING:
     from crawlers.signer import Signer
 
 logger = get_logger(__name__)
-
-
-def _is_webp_url(url: str) -> bool:
-    """判断 URL 是否指向 WebP 缩略图资源。
-
-    ISSUE-20：抖音 ``play_addr.url_list`` 可能混入 WebP 静态图直链
-    （URL 含 ``.webp`` 或 ``mime_type=image_webp`` 参数），这类资源
-    只能下载到单帧缩略图而非可播放视频。
-
-    Args:
-        url: 待判断 URL
-
-    Returns:
-        URL 指向 WebP 缩略图时返回 True
-    """
-    url_lower = url.lower()
-    # 第 4 个分支：按 & 切分后逐个做子串匹配（不能直接用 "webp" in list，
-    # 那是精确匹配，对 "mime_type=image_webp" 这类参数恒为 False）
-    return (
-        ".webp" in url_lower
-        or url_lower.endswith("webp")
-        or "mime_type=image_webp" in url_lower
-        or any("webp" in part for part in url_lower.split("&"))
-    )
 
 
 # === 类型别名 ===
@@ -223,131 +196,29 @@ class VideoParser:
                 tags.append(name)
         return tags
 
-    @classmethod
-    def _extract_no_watermark_url(cls, detail: dict) -> str | None:
+    @staticmethod
+    def _extract_no_watermark_url(detail: dict) -> str | None:
         """提取视频无水印直链。
 
-        ISSUE-20 完整回退链路：
-        1. ``video.bit_rate[*].play_addr``（各清晰度档位，**最可靠**）
-           bit_rate 数组含独立 play_addr，指向真实视频流（WebM/MP4），
-           `play_addr.url_list` 可能返回 WebP 封面占位而 bit_rate 不受影响。
-        2. ``video.download_addr``（独立下载入口）
-        3. ``video.play_addr``（标准路径，部分场景可能返回 WebP 封面）
-
-        每个步骤均过滤 WebP 缩略图直链（.webp / mime_type=image_webp），
-        处理 playwm→play 替换，确保返回可播放的视频 URL。
+        路径: ``video.play_addr.url_list[0]``，
+        若 URL 含 ``playwm`` 子串，替换为 ``play`` 得无水印直链。
 
         参数:
             detail: ``aweme_detail`` 节点。
 
         返回:
-            无水印直链；全部来源均无可用视频 URL 时返回 None。
+            无水印直链；列表为空时返回 None。
         """
-        video = detail.get("video")
-        if not isinstance(video, dict):
-            return None
-
-        # 1. bit_rate 回退（各清晰度档位，最可靠）
-        url = cls._pick_video_url_from_bit_rate(video)
-        if url is not None:
-            return url
-
-        # 2. download_addr 回退
-        url = cls._pick_video_url_from_addr(video.get("download_addr"), "download_addr")
-        if url is not None:
-            return url
-
-        # 3. play_addr（标准路径，最后兜底）
-        url = cls._pick_video_url_from_play_addr(video)
-        if url is not None:
-            return url
-
-        logger.warning("bit_rate / download_addr / play_addr 均无可用视频直链")
-        return None
-
-    @classmethod
-    def _pick_video_url_from_addr(cls, addr: object, source: str) -> str | None:
-        """从 addr 结构（含 url_list）中选取可用视频直链。
-
-        跳过 WebP 缩略图直链，处理 playwm→play 替换。
-
-        Args:
-            addr: ``download_addr`` 等含 url_list 的结构
-            source: 来源名称（用于日志）
-
-        Returns:
-            视频直链，无可用时返回 None
-        """
-        url_list = addr.get("url_list") if isinstance(addr, dict) else None
+        url_list = detail.get("video", {}).get("play_addr", {}).get("url_list")
         if not isinstance(url_list, list) or not url_list:
             return None
-        video_urls = [u for u in url_list if isinstance(u, str) and u and not _is_webp_url(u)]
-        if not video_urls:
-            logger.warning("%s.url_list 无可用视频直链: %s", source, url_list)
+        url = url_list[0]
+        if not isinstance(url, str) or not url:
             return None
-        url = video_urls[0]
         if "playwm" in url:
             url = url.replace("playwm", "play")
-        logger.info("从 %s 获取到视频直链: %s", source, url[:200])
+        logger.debug("获取到视频直链: %s", url[:200])
         return url
-
-    @classmethod
-    def _pick_video_url_from_bit_rate(cls, video: dict) -> str | None:
-        """从 video.bit_rate 各档位中选取可用视频直链。
-
-        bit_rate 数组每个元素含独立的 play_addr，指向该清晰度的视频流。
-
-        Args:
-            video: ``aweme_detail.video`` 节点
-
-        Returns:
-            视频直链，无可用时返回 None
-        """
-        bit_rate = video.get("bit_rate")
-        if not isinstance(bit_rate, list) or not bit_rate:
-            logger.warning("video.bit_rate 缺失或为空")
-            return None
-        for i, br in enumerate(bit_rate):
-            if not isinstance(br, dict):
-                continue
-            play_addr = br.get("play_addr")
-            url = cls._pick_video_url_from_addr(play_addr, f"bit_rate[{i}]")
-            if url is not None:
-                return url
-        logger.warning("bit_rate 各档位均无可用视频直链")
-        return None
-
-    @classmethod
-    def _pick_video_url_from_play_addr(cls, video: dict) -> str | None:
-        """从 video.play_addr 中选取可用视频直链。
-
-        优先选择非 WebP 缩略图的视频 URL，跳过 ``.webp`` /
-        ``mime_type=image_webp`` 条目。若全部为 WebP，记录日志后返回 None。
-
-        Args:
-            video: ``aweme_detail.video`` 节点
-
-        Returns:
-            视频直链，无可用时返回 None
-        """
-        play_addr = video.get("play_addr")
-        url_list = play_addr.get("url_list") if isinstance(play_addr, dict) else None
-        if not isinstance(url_list, list) or not url_list:
-            return None
-
-        logger.debug("play_addr.url_list: %s", url_list)
-
-        # 过滤：跳过 WebP 缩略图直链
-        video_urls = [u for u in url_list if isinstance(u, str) and u and not _is_webp_url(u)]
-        if not video_urls:
-            logger.warning("play_addr.url_list 全部为 WebP 缩略图直链: %s", url_list)
-            return None
-
-        url = video_urls[0]
-        if "playwm" in url:
-            url = url.replace("playwm", "play")
-        return url
-
     @staticmethod
     def _extract_image_urls(detail: dict) -> list[str]:
         """提取图集原图直链列表。
@@ -375,13 +246,13 @@ class VideoParser:
                 urls.append(url)
         return urls
 
-    @classmethod
-    def _extract_item_video_urls(cls, detail: dict) -> list[str]:
+    @staticmethod
+    def _extract_item_video_urls(detail: dict) -> list[str]:
         """从 ``images`` 数组逐项提取视频直链（优先），无视频时退枝到图片 URL。
 
         v0.2.x：抖音图文可能附带多个视频片段（每个 ``images[*]`` 含独立 ``video``
-        子对象），本方法对每项优先取 ``bit_rate → download_addr → play_addr``
-        回退链路的视频直链，无可用视频时取 ``url_list[0]`` 图片 URL 兜底。
+        子对象），本方法对每项优先取 ``video.play_addr.url_list[0]`` 视频直链，
+        无可用视频时取 ``url_list[0]`` 图片 URL 兜底。
 
         返回列表与 ``images`` 数组一一对应，长度一致，调用方可直接替换 ``image_urls``
         作为下载地址。
@@ -404,13 +275,13 @@ class VideoParser:
             video = img.get("video")
             video_url: str | None = None
             if isinstance(video, dict):
-                video_url = cls._pick_video_url_from_bit_rate(video)
-                if video_url is None:
-                    video_url = cls._pick_video_url_from_addr(
-                        video.get("download_addr"), "image.download_addr"
-                    )
-                if video_url is None:
-                    video_url = cls._pick_video_url_from_play_addr(video)
+                play_addr = video.get("play_addr")
+                if isinstance(play_addr, dict):
+                    url_list = play_addr.get("url_list")
+                    if isinstance(url_list, list) and url_list and isinstance(url_list[0], str):
+                        video_url = url_list[0]
+                        if "playwm" in video_url:
+                            video_url = video_url.replace("playwm", "play")
             # 2. 退枝：取图片 URL
             if video_url is not None:
                 urls.append(video_url)
@@ -421,51 +292,6 @@ class VideoParser:
                 else:
                     urls.append("")
         return urls
-
-    @staticmethod
-    def _extract_item_types(detail: dict) -> list[str]:
-        """从 ``images`` 数组逐项判断媒体类型。
-
-        判断依据（按优先级）:
-        1. ``live_photo_type == 1`` → 动图（返回 ``'video'``）
-        2. ``clip_type`` 为 ``4`` 或 ``5`` → 动图（返回 ``'video'``）
-        3. ``video`` 字段存在且为完整 dict → 动图（返回 ``'video'``）
-        4. 其他情况 → 静态图片（返回 ``'image'``）
-
-        返回列表与 ``images`` 数组一一对应，长度一致。
-
-        参数:
-            detail: ``aweme_detail`` 节点。
-
-        返回:
-            与 ``images`` 数组长度一致的媒体类型列表（'image' 或 'video'）。
-        """
-        images = detail.get("images")
-        if not isinstance(images, list):
-            return []
-        types: list[str] = []
-        for img in images:
-            if not isinstance(img, dict):
-                types.append("image")
-                continue
-            # 1. live_photo_type == 1 → 动图
-            if img.get("live_photo_type") == 1:
-                types.append("video")
-                continue
-            # 2. clip_type 为 4 或 5 → 动图
-            clip_type = img.get("clip_type")
-            if clip_type in (4, 5):
-                types.append("video")
-                continue
-            # 3. video 字段存在且为完整 dict → 动图
-            video = img.get("video")
-            if isinstance(video, dict) and video.get("play_addr"):
-                types.append("video")
-                continue
-            # 4. 其他 → 静态图片
-            types.append("image")
-        return types
-
     @staticmethod
     def _extract_item_types(detail: dict) -> list[str]:
         """从 ``images`` 数组逐项判断媒体类型。

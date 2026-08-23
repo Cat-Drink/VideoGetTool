@@ -127,7 +127,12 @@ async def list_task_items(task_id: int):
 @router.post("/start")
 async def start_download(req: StartDownloadRequest):
     """启动下载任务。"""
-    if ctx.task_repo is None or ctx.task_item_repo is None or ctx.scheduler is None:
+    if (
+        ctx.task_repo is None
+        or ctx.task_item_repo is None
+        or ctx.scheduler is None
+        or ctx.config_repo is None
+    ):
         raise HTTPException(status_code=503, detail="Service not ready")
 
     download_dir = req.download_dir or ctx.config_repo.get("download_dir") or ""

@@ -47,6 +47,13 @@ class ConnectionManager:
         for ws in dead:
             self.disconnect(ws)
 
+    def register_for_test(self, ws: object) -> None:
+        """注册测试用伪 WebSocket 连接（不经过 accept 握手）。
+
+        仅测试使用，避免测试直接访问私有属性 ``_connections``。
+        """
+        self._connections.append(ws)
+
     @property
     def active_count(self) -> int:
         return len(self._connections)
@@ -157,4 +164,5 @@ async def _push_progress_updates(stop_event: asyncio.Event) -> None:
                     )
         except Exception:
             pass
+
         await asyncio.sleep(1)

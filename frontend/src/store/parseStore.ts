@@ -66,8 +66,8 @@ parseUrls: async (urls: string[]) => {
 	      const rawResults = await api.parseUrls(urls);
 	      set((state) => {
 	        const offset = state.batchResults.length;
-const results: ParsedResult[] = rawResults.map((r: api.ParseResult, i: number) => ({
-          index: offset + i,
+            const results: ParsedResult[] = rawResults.map((r: api.ParseResult, i: number) => ({
+              index: offset + i,
           url: urls[i] || r.url || "",
           title: r.title || "",
           author: r.author || "",
@@ -113,8 +113,8 @@ fetchHome: async (url: string, maxItems = 50) => {
 	      const result = await api.fetchHome(url, maxItems);
 	      set((state) => {
 	        const offset = state.profileResults.length;
-const results: ParsedResult[] = (result.items || []).map((r: api.ParseResult, i: number) => ({
-          index: offset + i,
+            const results: ParsedResult[] = (result.items || []).map((r: api.ParseResult, i: number) => ({
+              index: offset + i,
           url: r.url || "",
           title: r.title || "",
           author: r.author || "",

@@ -77,7 +77,7 @@ async def test_ws_pushes_all_statuses(memory_db):
     from backend.api.ws import manager
 
     fake_ws = FakeWS()
-    manager._connections.append(fake_ws)
+    manager.register_for_test(fake_ws)
 
     stop_event = asyncio.Event()
     push_task = asyncio.create_task(_push_progress_updates(stop_event))
