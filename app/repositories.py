@@ -55,6 +55,7 @@ def _row_to_task_item(row: sqlite3.Row) -> TaskItem:
         fail_reason=row["fail_reason"],
         local_path=row["local_path"],
         selected_image_indices=row["selected_image_indices"],
+        item_types=row["item_types"],
         created_at=row["created_at"],
         updated_at=row["updated_at"],
     )
@@ -223,8 +224,8 @@ class TaskItemRepository:
                     (task_id, aweme_id, url, title, author, author_sec_id,
                      type, duration, image_count, cover_url, status,
                      downloaded_bytes, total_bytes, retry_count, fail_reason,
-                     local_path, selected_image_indices, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     local_path, selected_image_indices, item_types, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     item.task_id,
@@ -244,6 +245,7 @@ class TaskItemRepository:
                     item.fail_reason,
                     item.local_path,
                     item.selected_image_indices,
+                    item.item_types,
                     created_at,
                     updated_at,
                 ),

@@ -17,6 +17,7 @@ export interface ParsedResult {
   noWatermarkUrl?: string;
   imageUrls?: string[];
   itemVideoUrls?: string[];
+  itemTypes?: string[];
   publishedAt?: string;
   error?: string;
 }
@@ -78,6 +79,7 @@ const results: ParsedResult[] = rawResults.map((r: api.ParseResult, i: number) =
           noWatermarkUrl: r.no_watermark_url || undefined,
           imageUrls: r.image_urls || undefined,
           itemVideoUrls: r.item_video_urls || undefined,
+          itemTypes: r.item_types || undefined,
           publishedAt: r.publish_time || undefined,
           error: r.error || undefined,
         }));
@@ -124,6 +126,7 @@ const results: ParsedResult[] = (result.items || []).map((r: api.ParseResult, i:
           noWatermarkUrl: r.no_watermark_url || undefined,
           imageUrls: r.image_urls || undefined,
           itemVideoUrls: r.item_video_urls || undefined,
+          itemTypes: r.item_types || undefined,
           publishedAt: r.publish_time || undefined,
         }));
 	        return {
@@ -165,6 +168,7 @@ const results: ParsedResult[] = (result.items || []).map((r: api.ParseResult, i:
         no_watermark_url: item.noWatermarkUrl,
         image_urls: item.imageUrls,
         item_video_urls: item.itemVideoUrls,
+        item_types: item.itemTypes,
       }));
 
     if (downloadItems.length === 0) return [];

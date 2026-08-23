@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 
@@ -158,6 +159,7 @@ async def start_download(req: StartDownloadRequest):
             media_url = item_data.get("no_watermark_url") or ""
             image_urls = item_data.get("image_urls") or []
             item_video_urls = item_data.get("item_video_urls") or []
+            item_types = item_data.get("item_types") or []
 
             # 前端未提供真实媒体地址时，用 aweme_id 二次解析 detail 接口获取
             if not (media_url or image_urls) and aweme_id and ctx.video_parser is not None:
@@ -166,6 +168,7 @@ async def start_download(req: StartDownloadRequest):
                     if item_type == "image_set" and video_info.image_urls:
                         image_urls = video_info.image_urls
                         item_video_urls = video_info.item_video_urls
+                        item_types = video_info.item_types
                     elif video_info.no_watermark_url:
                         media_url = video_info.no_watermark_url
                 except Exception:
@@ -202,6 +205,7 @@ async def start_download(req: StartDownloadRequest):
                     if item_type == "image_set" and image_urls
                     else item_data.get("image_count")
                 ),
+                item_types=json.dumps(item_types, ensure_ascii=False) if item_type == "image_set" and item_types else "",
                 status=TaskItemStatus.PENDING.value,
             )
             item_id = ctx.task_item_repo.create(task_item)

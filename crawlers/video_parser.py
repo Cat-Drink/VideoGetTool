@@ -14,10 +14,13 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
+from app import config
 from app.logger import get_logger
 from crawlers import api_spec
 from crawlers.exceptions import VideoNotFoundError
@@ -101,6 +104,9 @@ class VideoInfo:
     # v0.2.x：逐项 URL（视频优先，图片退枝）。与 image_urls 一一对应，
     # 每个元素优先取 images[*].video 中的真实视频直链，无视频时退枝到图片 URL。
     item_video_urls: list[str] = field(default_factory=list)
+    # v0.2.x：逐项媒体类型（'image' 静态图片 / 'video' 动图视频）。
+    # 与 image_urls 一一对应，下游据此决定存为图片还是视频。
+    item_types: list[str] = field(default_factory=list)
 
     @property
     def merged_item_urls(self) -> list[str]:
@@ -417,6 +423,94 @@ class VideoParser:
         return urls
 
     @staticmethod
+    def _extract_item_types(detail: dict) -> list[str]:
+        """从 ``images`` 数组逐项判断媒体类型。
+
+        判断依据（按优先级）:
+        1. ``live_photo_type == 1`` → 动图（返回 ``'video'``）
+        2. ``clip_type`` 为 ``4`` 或 ``5`` → 动图（返回 ``'video'``）
+        3. ``video`` 字段存在且为完整 dict → 动图（返回 ``'video'``）
+        4. 其他情况 → 静态图片（返回 ``'image'``）
+
+        返回列表与 ``images`` 数组一一对应，长度一致。
+
+        参数:
+            detail: ``aweme_detail`` 节点。
+
+        返回:
+            与 ``images`` 数组长度一致的媒体类型列表（'image' 或 'video'）。
+        """
+        images = detail.get("images")
+        if not isinstance(images, list):
+            return []
+        types: list[str] = []
+        for img in images:
+            if not isinstance(img, dict):
+                types.append("image")
+                continue
+            # 1. live_photo_type == 1 → 动图
+            if img.get("live_photo_type") == 1:
+                types.append("video")
+                continue
+            # 2. clip_type 为 4 或 5 → 动图
+            clip_type = img.get("clip_type")
+            if clip_type in (4, 5):
+                types.append("video")
+                continue
+            # 3. video 字段存在且为完整 dict → 动图
+            video = img.get("video")
+            if isinstance(video, dict) and video.get("play_addr"):
+                types.append("video")
+                continue
+            # 4. 其他 → 静态图片
+            types.append("image")
+        return types
+
+    @staticmethod
+    def _extract_item_types(detail: dict) -> list[str]:
+        """从 ``images`` 数组逐项判断媒体类型。
+
+        判断依据（按优先级）:
+        1. ``live_photo_type == 1`` → 动图（返回 ``'video'``）
+        2. ``clip_type`` 为 ``4`` 或 ``5`` → 动图（返回 ``'video'``）
+        3. ``video`` 字段存在且为完整 dict → 动图（返回 ``'video'``）
+        4. 其他情况 → 静态图片（返回 ``'image'``）
+
+        返回列表与 ``images`` 数组一一对应，长度一致。
+
+        参数:
+            detail: ``aweme_detail`` 节点。
+
+        返回:
+            与 ``images`` 数组长度一致的媒体类型列表（'image' 或 'video'）。
+        """
+        images = detail.get("images")
+        if not isinstance(images, list):
+            return []
+        types: list[str] = []
+        for img in images:
+            if not isinstance(img, dict):
+                types.append("image")
+                continue
+            # 1. live_photo_type == 1 → 动图
+            if img.get("live_photo_type") == 1:
+                types.append("video")
+                continue
+            # 2. clip_type 为 4 或 5 → 动图
+            clip_type = img.get("clip_type")
+            if clip_type in (4, 5):
+                types.append("video")
+                continue
+            # 3. video 字段存在且为完整 dict → 动图
+            video = img.get("video")
+            if isinstance(video, dict) and video.get("play_addr"):
+                types.append("video")
+                continue
+            # 4. 其他 → 静态图片
+            types.append("image")
+        return types
+
+    @staticmethod
     def _build_detail_params(aweme_id: str) -> dict:
         """构造 detail 接口业务参数。
 
@@ -494,11 +588,13 @@ class VideoParser:
             no_watermark_url = cls._extract_no_watermark_url(detail)
             image_urls = cls._extract_image_urls(detail)
             item_video_urls = cls._extract_item_video_urls(detail)
+            item_types = cls._extract_item_types(detail)
             duration: str | None = None
         else:
             no_watermark_url = cls._extract_no_watermark_url(detail)
             image_urls = []
             item_video_urls = []
+            item_types = []
             raw_duration = detail.get("video", {}).get("duration")
             duration = (
                 cls._format_duration(raw_duration)
@@ -519,6 +615,7 @@ class VideoParser:
             no_watermark_url=no_watermark_url,
             image_urls=image_urls,
             item_video_urls=item_video_urls,
+            item_types=item_types,
             publish_time=cls._format_publish_time(detail.get("create_time")),
             like_count=like_count,
             comment_count=comment_count,
@@ -527,6 +624,27 @@ class VideoParser:
             tags=cls._extract_tags(detail),
             raw_json=detail,
         )
+
+    # @staticmethod
+    # def _dump_detail_payload(aweme_id: str, payload: dict) -> None:
+    #     """将完整 detail 响应 JSON 写入独立文件，不截断。
+    #
+    #     文件保存路径: ``{APP_DATA_DIR}/detail_responses/detail_{aweme_id}_{timestamp}.json``
+    #
+    #     Args:
+    #         aweme_id: 作品 ID，用于文件名。
+    #         payload: 接口返回的完整 JSON 对象。
+    #     """
+    #     try:
+    #         dump_dir = config.APP_DATA_DIR / "detail_responses"
+    #         dump_dir.mkdir(parents=True, exist_ok=True)
+    #         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    #         file_path = dump_dir / f"detail_{aweme_id}_{timestamp}.json"
+    #         with open(file_path, "w", encoding="utf-8") as f:
+    #             json.dump(payload, f, ensure_ascii=False, indent=2)
+    #         logger.info("detail 响应 JSON 已写入: %s", file_path)
+    #     except Exception as e:
+    #         logger.warning("写入 detail 响应 JSON 失败: aweme_id=%s error=%s", aweme_id, e)
 
     # === 主流程 ===
 
@@ -568,6 +686,10 @@ class VideoParser:
         except ValueError as e:
             logger.error("响应 JSON 解析失败: aweme_id=%s error=%s", aweme_id, e)
             raise VideoNotFoundError(f"作品详情响应非 JSON: {e}") from e
+
+        # 将完整 detail 响应 JSON 单独写入文件，便于调试接口变更（不截断）
+        # 2026-08-23：请求应 JSON 日志已注释，如需恢复调试请取消注释下一行
+        # self._dump_detail_payload(aweme_id, payload)
 
         status_code = payload.get("status_code")
         # 抖音 API 有时返回字符串，做防御性 int 转换

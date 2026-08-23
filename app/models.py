@@ -109,6 +109,8 @@ class TaskItem:
     local_path: str | None = None
     # v0.1.7：图片级勾选状态持久化（JSON 数组，如 "[0,1,3]"；空字符串表示全选）
     selected_image_indices: str = ""
+    # v0.2.x：逐项媒体类型（JSON 数组，如 '["image","video","image"]'；空字符串表示全为静态图片）
+    item_types: str = ""
     created_at: str = ""
     updated_at: str = ""
 

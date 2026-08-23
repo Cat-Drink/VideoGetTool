@@ -20,7 +20,7 @@ from app import config
 from app.models import now_iso
 
 # === Schema 版本 ===
-SCHEMA_VERSION: int = 2
+SCHEMA_VERSION: int = 3
 
 # === 建表 SQL（与设计文档 4.1 节完全一致）===
 CREATE_TASKS_SQL = """
@@ -57,6 +57,7 @@ CREATE TABLE IF NOT EXISTS task_items (
     fail_reason     TEXT,
     local_path      TEXT,
     selected_image_indices TEXT DEFAULT '',
+    item_types      TEXT DEFAULT '',
     created_at      TEXT NOT NULL,
     updated_at      TEXT NOT NULL
 )
@@ -176,6 +177,20 @@ def _migrate_v1_to_v2(conn: sqlite3.Connection) -> None:
 
 
 MIGRATIONS[2] = _migrate_v1_to_v2
+
+
+def _migrate_v2_to_v3(conn: sqlite3.Connection) -> None:
+    """v2 → v3：task_items 表新增 item_types 列。
+
+    v0.2.x 图文动图类型区分：JSON 数组如 '["image","video","image"]'
+    记录每项是静态图片还是动图视频；空字符串表示全为静态图片。幂等：列已存在时跳过。
+    """
+    if _column_exists(conn, "task_items", "item_types"):
+        return
+    conn.execute("ALTER TABLE task_items ADD COLUMN item_types TEXT DEFAULT ''")
+
+
+MIGRATIONS[3] = _migrate_v2_to_v3
 
 
 def get_connection(db_path: Path | str | None = None) -> sqlite3.Connection:
