@@ -10,6 +10,7 @@ import { useUiInputStore } from "../store/uiInputStore";
 import * as api from "../lib/api";
 import { useNavigate } from "react-router-dom";
 import type { WsMessage } from "../hooks/useWebSocket";
+import { playNotificationSound } from "../lib/sound";
 
 export default function DownloadPage() {
   const navigate = useNavigate();
@@ -22,6 +23,7 @@ export default function DownloadPage() {
   } = useTaskStore();
   const { addToast } = useToastStore();
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const prevStatusRef = useRef<Map<number, string>>(new Map());
 
   const handleDeleteItem = async (itemId: number) => {
     try {
@@ -42,11 +44,26 @@ export default function DownloadPage() {
     (msg: WsMessage) => {
       if (msg.type === "progress" && msg.updates) {
         for (const update of msg.updates) {
+          // 检测状态变更：从非终态变为 completed/failed
+          const prevStatus = prevStatusRef.current.get(update.task_item_id);
+          const newStatus = update.status;
+          const isTerminal = (s: string) => s === "completed" || s === "failed";
+
+          if (prevStatus && !isTerminal(prevStatus) && isTerminal(newStatus)) {
+            playNotificationSound(newStatus as "completed" | "failed");
+            addToast(
+              newStatus === "completed" ? "任务下载完成" : "任务下载失败",
+              newStatus === "completed" ? "success" : "error",
+            );
+          }
+
+          // 更新状态追踪
+          prevStatusRef.current.set(update.task_item_id, newStatus);
           applyProgressUpdate(update);
         }
       }
     },
-    [applyProgressUpdate],
+    [applyProgressUpdate, addToast],
   );
 
   const { connected } = useWebSocket(onWsMessage);
