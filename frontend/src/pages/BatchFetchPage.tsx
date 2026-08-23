@@ -1,5 +1,5 @@
 import { useState, useRef } from "react";
-import { Upload, FileText, Loader2, AlertCircle } from "lucide-react";
+import { Upload, FileText, Loader2, AlertCircle, ChevronRight, ChevronDown } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Textarea } from "../components/ui/textarea";
 import { Badge } from "../components/ui/badge";
@@ -25,6 +25,9 @@ function formatTime(iso: string): string {
 export default function BatchFetchPage() {
   const { batchLinks: links, setBatchLinks: setLinks } = useUiInputStore();
   const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  /** 图文项内图片勾选：条目位置 index → 选中的图片索引数组 */
+  const [imageSelection, setImageSelection] = useState<Map<number, number[]>>(new Map());
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const {
@@ -64,22 +67,88 @@ export default function BatchFetchPage() {
 
   const toggleSelect = (index: number) => {
     const next = new Set(selected);
-    if (next.has(index)) next.delete(index);
-    else next.add(index);
+    const nextImgSel = new Map(imageSelection);
+    if (next.has(index)) {
+      next.delete(index);
+      nextImgSel.delete(index);
+    } else {
+      next.add(index);
+      const item = parsed[index];
+      // 图文默认全选其图片；其他类型无图片选择
+      if (item?.type === "image_set" && item.imageUrls?.length) {
+        nextImgSel.set(index, item.imageUrls.map((_, imgIdx) => imgIdx));
+      }
+    }
     setSelected(next);
+    setImageSelection(nextImgSel);
   };
 
   const toggleAll = () => {
     if (!parsed) return;
-    if (selected.size === parsed.length) setSelected(new Set());
-    else setSelected(new Set(parsed.map((_, i) => i)));
+    if (selected.size === parsed.length) {
+      setSelected(new Set());
+      setImageSelection(new Map());
+    } else {
+      const nextImgSel = new Map<number, number[]>();
+      parsed.forEach((item, i) => {
+        if (item.type === "image_set" && item.imageUrls?.length && !item.error) {
+          nextImgSel.set(i, item.imageUrls.map((_, imgIdx) => imgIdx));
+        }
+      });
+      setSelected(new Set(parsed.map((_, i) => i)));
+      setImageSelection(nextImgSel);
+    }
+  };
+
+  /** 切换图文项内单张图片的勾选 */
+  const toggleImage = (itemIndex: number, imageIdx: number) => {
+    const item = parsed[itemIndex];
+    if (!item) return;
+    const nextImgSel = new Map(imageSelection);
+    const current = new Set(nextImgSel.get(itemIndex) ?? item.imageUrls?.map((_, i) => i) ?? []);
+    const nextSelected = new Set(selected);
+    if (current.has(imageIdx)) {
+      current.delete(imageIdx);
+    } else {
+      current.add(imageIdx);
+    }
+    if (current.size === 0) {
+      // 没有勾选任何图片则取消选中该条目
+      nextImgSel.delete(itemIndex);
+      nextSelected.delete(itemIndex);
+    } else {
+      nextImgSel.set(itemIndex, [...current].sort((a, b) => a - b));
+      nextSelected.add(itemIndex);
+    }
+    setImageSelection(nextImgSel);
+    setSelected(nextSelected);
+  };
+
+  const toggleExpand = (index: number) => {
+    const next = new Set(expanded);
+    if (next.has(index)) next.delete(index);
+    else next.add(index);
+    setExpanded(next);
   };
 
   const handleDownload = async () => {
     const items = selected.size === 0 ? [] : parsed.filter((_, i) => selected.has(i));
     if (items.length === 0) return;
     try {
-      const enqueued = await downloadSelected(items);
+      // 将按位置记录的图片选择转换为按 ParsedResult.index 记录
+      const byItemIndex = new Map<number, number[]>();
+      items.forEach((item) => {
+        const arr = parsed.findIndex((p) => p === item);
+        if (arr >= 0) {
+          const sel = imageSelection.get(arr);
+          if (sel) byItemIndex.set(item.index, sel);
+        }
+      });
+      const enqueued = await downloadSelected(
+        items,
+        undefined,
+        byItemIndex.size > 0 ? byItemIndex : undefined,
+      );
       // 已入队下载的解析项从列表中移除
       if (enqueued.length > 0) {
         removeBatchItems(new Set(enqueued.map((i) => i.index)));
@@ -87,6 +156,8 @@ export default function BatchFetchPage() {
       }
       // 清空选择
       setSelected(new Set());
+      setImageSelection(new Map());
+      setExpanded(new Set());
     } catch (e) {
       addToast(e instanceof Error ? e.message : "下载入队失败", "error");
     }
@@ -99,12 +170,16 @@ export default function BatchFetchPage() {
     );
     removeBatchItems(selectedIndices);
     setSelected(new Set());
+    setImageSelection(new Map());
+    setExpanded(new Set());
     addToast(`已删除 ${selected.size} 项`, "success");
   };
 
   const handleClearAll = () => {
     clearBatch();
     setSelected(new Set());
+    setImageSelection(new Map());
+    setExpanded(new Set());
     addToast("已清空所有解析结果", "success");
   };
 
@@ -180,51 +255,107 @@ export default function BatchFetchPage() {
             </span>
           </div>
           <div className="flex-1 overflow-y-auto">
-            {parsed.map((item, i) => (
-              <div
-                key={item.awemeId || item.url || `item-${item.index}`}
-                className={`flex items-center gap-3 px-6 py-2 border-b border-border-light hover:bg-bg-hover transition-colors cursor-pointer ${selected.has(i) ? "bg-bg-selected" : ""} ${item.error ? "opacity-60" : ""}`}
-                onClick={() => !item.error && toggleSelect(i)}
-              >
-                <input
-                  type="checkbox"
-                  className="w-4 h-4 accent-purple-500 flex-shrink-0"
-                  checked={selected.has(i)}
-                  onChange={() => !item.error && toggleSelect(i)}
-                  disabled={!!item.error}
-                />
-                <div className="w-12 h-12 rounded-sm bg-bg-hover flex-shrink-0 flex items-center justify-center text-text-disabled text-xs overflow-hidden">
-                  {item.coverUrl ? (
-                    <img src={item.coverUrl} alt={item.title} className="w-full h-full object-cover" />
-                  ) : (
-                    "封面"
-                  )}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-medium text-text-primary truncate">
-                    {item.title || (item.error ? "解析失败" : "未知作品")}
-                  </div>
-                  <div className="text-xs text-text-secondary mt-0.5">
-                    {item.error ? (
-                      <span className="text-error">{item.error}</span>
+            {parsed.map((item, i) => {
+              const isImageSet = !item.error && item.type === "image_set";
+              const isExpanded = expanded.has(i);
+              const imgSelCount = isImageSet
+                ? (imageSelection.get(i)?.length ?? item.imageUrls?.length ?? 0)
+                : 0;
+              const totalImgs = item.imageUrls?.length ?? 0;
+              return (
+                <div key={item.awemeId || item.url || `item-${item.index}`}>
+                  <div
+                    className={`flex items-center gap-3 px-6 py-2 border-b border-border-light hover:bg-bg-hover transition-colors cursor-pointer ${selected.has(i) ? "bg-bg-selected" : ""} ${item.error ? "opacity-60" : ""}`}
+                    onClick={() => !item.error && toggleSelect(i)}
+                  >
+                    <input
+                      type="checkbox"
+                      className="w-4 h-4 accent-purple-500 flex-shrink-0"
+                      checked={selected.has(i)}
+                      onChange={() => !item.error && toggleSelect(i)}
+                      disabled={!!item.error}
+                    />
+                    {isImageSet ? (
+                      <button
+                        className="flex-shrink-0 text-text-secondary hover:text-text-primary p-0.5 rounded"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleExpand(i);
+                        }}
+                        title={isExpanded ? "收起图片列表" : "展开图片列表"}
+                      >
+                        {isExpanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+                      </button>
                     ) : (
-                      `@${item.author || "未知作者"}`
+                      <span className="w-5 flex-shrink-0" />
+                    )}
+                    <div className="w-12 h-12 rounded-sm bg-bg-hover flex-shrink-0 flex items-center justify-center text-text-disabled text-xs overflow-hidden">
+                      {item.coverUrl ? (
+                        <img src={item.coverUrl} alt={item.title} className="w-full h-full object-cover" />
+                      ) : (
+                        "封面"
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium text-text-primary truncate">
+                        {item.title || (item.error ? "解析失败" : "未知作品")}
+                      </div>
+                      <div className="text-xs text-text-secondary mt-0.5">
+                        {item.error ? (
+                          <span className="text-error">{item.error}</span>
+                        ) : (
+                          `@${item.author || "未知作者"}`
+                        )}
+                      </div>
+                    </div>
+                    {!item.error && (
+                      <>
+                        <Badge variant={item.type === "video" ? "video" : item.type === "image_set" ? "image_set" : "long_video"} />
+                        <span className="text-xs text-text-secondary w-14 text-right flex-shrink-0">
+                          {item.publishedAt ? formatTime(item.publishedAt) : ""}
+                        </span>
+                        <span className="text-xs text-text-secondary w-12 text-right flex-shrink-0">
+                          {item.duration || (item.imageCount ? `${item.imageCount}张` : "")}
+                        </span>
+                      </>
                     )}
                   </div>
+                  {/* 图文条目展开的图片选择区 */}
+                  {isImageSet && isExpanded && totalImgs > 0 && (
+                    <div className="px-6 py-3 pl-[5.5rem] bg-bg-gray/50 border-b border-border-light">
+                      <div className="text-xs text-text-secondary mb-2">
+                        已勾选 {imgSelCount} / {totalImgs} 张图片
+                      </div>
+                      <div className="grid grid-cols-6 md:grid-cols-8 lg:grid-cols-10 gap-2 max-h-56 overflow-y-auto">
+                        {(item.imageUrls || []).map((imgUrl, imgIdx) => {
+                          const checked = imageSelection.get(i)?.includes(imgIdx) ?? true;
+                          return (
+                            <div key={imgIdx} className="relative group">
+                              <input
+                                type="checkbox"
+                                className="absolute top-1 left-1 w-4 h-4 accent-purple-500 z-10"
+                                checked={checked}
+                                onChange={() => toggleImage(i, imgIdx)}
+                                onClick={(e) => e.stopPropagation()}
+                              />
+                              <img
+                                src={imgUrl}
+                                alt={`图片 ${imgIdx + 1}`}
+                                className={`w-full aspect-square object-cover rounded-sm border ${checked ? "border-purple-400" : "border-border-light opacity-40"} transition-colors`}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  toggleImage(i, imgIdx);
+                                }}
+                              />
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </div>
-                {!item.error && (
-                  <>
-                    <Badge variant={item.type === "video" ? "video" : item.type === "image_set" ? "image_set" : "long_video"} />
-                    <span className="text-xs text-text-secondary w-14 text-right flex-shrink-0">
-                      {item.publishedAt ? formatTime(item.publishedAt) : ""}
-                    </span>
-                    <span className="text-xs text-text-secondary w-12 text-right flex-shrink-0">
-                      {item.duration || (item.imageCount ? `${item.imageCount}张` : "")}
-                    </span>
-                  </>
-                )}
-              </div>
-            ))}
+              );
+            })}
           </div>
           {/* Bottom bar */}
           <div className="flex items-center gap-3 px-6 h-14 border-t border-border-light bg-bg-input">
