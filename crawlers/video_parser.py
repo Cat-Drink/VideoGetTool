@@ -14,7 +14,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Literal
 
@@ -74,6 +74,27 @@ class VideoInfo:
     collect_count: int
     tags: list[str]
     raw_json: dict
+    # v0.2.x：逐项 URL（视频优先，图片退枝）。与 image_urls 一一对应，
+    # 每个元素优先取 images[*].video 中的真实视频直链，无视频时退枝到图片 URL。
+    item_video_urls: list[str] = field(default_factory=list)
+    # v0.2.x：逐项媒体类型（'image' 静态图片 / 'video' 动图视频）。
+    # 与 image_urls 一一对应，下游据此决定存为图片还是视频。
+    item_types: list[str] = field(default_factory=list)
+
+    @property
+    def merged_item_urls(self) -> list[str]:
+        """合并后的逐项下载 URL（视频优先，图片退枝）。
+
+        当 ``item_video_urls`` 与 ``image_urls`` 一一对应时，逐项取
+        ``item_video_urls`` 中非空值（空值退枝到对应图片 URL）；
+        长度不匹配等异常情况直接回退到 ``image_urls``。
+
+        返回:
+            与 ``images`` 数组长度一致的下载 URL 列表。
+        """
+        if self.item_video_urls and len(self.item_video_urls) == len(self.image_urls):
+            return [v if v else i for v, i in zip(self.item_video_urls, self.image_urls)]
+        return list(self.image_urls)
 
 
 # === VideoParser 类（Step 3-4 补充实现） ===
@@ -179,9 +200,8 @@ class VideoParser:
     def _extract_no_watermark_url(detail: dict) -> str | None:
         """提取视频无水印直链。
 
-        路径（见计划文档 3.4.1 节）:
-            - 主路径: ``video.play_addr.url_list[0]``
-            - 回退: 若 URL 含 ``playwm`` 子串，替换为 ``play`` 得无水印直链
+        路径: ``video.play_addr.url_list[0]``，
+        若 URL 含 ``playwm`` 子串，替换为 ``play`` 得无水印直链。
 
         参数:
             detail: ``aweme_detail`` 节点。
@@ -197,8 +217,8 @@ class VideoParser:
             return None
         if "playwm" in url:
             url = url.replace("playwm", "play")
+        logger.debug("获取到视频直链: %s", url[:200])
         return url
-
     @staticmethod
     def _extract_image_urls(detail: dict) -> list[str]:
         """提取图集原图直链列表。
@@ -225,6 +245,96 @@ class VideoParser:
             if isinstance(url, str) and url:
                 urls.append(url)
         return urls
+
+    @staticmethod
+    def _extract_item_video_urls(detail: dict) -> list[str]:
+        """从 ``images`` 数组逐项提取视频直链（优先），无视频时退枝到图片 URL。
+
+        v0.2.x：抖音图文可能附带多个视频片段（每个 ``images[*]`` 含独立 ``video``
+        子对象），本方法对每项优先取 ``video.play_addr.url_list[0]`` 视频直链，
+        无可用视频时取 ``url_list[0]`` 图片 URL 兜底。
+
+        返回列表与 ``images`` 数组一一对应，长度一致，调用方可直接替换 ``image_urls``
+        作为下载地址。
+
+        参数:
+            detail: ``aweme_detail`` 节点。
+
+        返回:
+            与 ``images`` 数组长度一致的 URL 列表。
+        """
+        images = detail.get("images")
+        if not isinstance(images, list):
+            return []
+        urls: list[str] = []
+        for img in images:
+            if not isinstance(img, dict):
+                urls.append("")
+                continue
+            # 1. 尝试提取 video 子对象中的视频直链
+            video = img.get("video")
+            video_url: str | None = None
+            if isinstance(video, dict):
+                play_addr = video.get("play_addr")
+                if isinstance(play_addr, dict):
+                    url_list = play_addr.get("url_list")
+                    if isinstance(url_list, list) and url_list and isinstance(url_list[0], str):
+                        video_url = url_list[0]
+                        if "playwm" in video_url:
+                            video_url = video_url.replace("playwm", "play")
+            # 2. 退枝：取图片 URL
+            if video_url is not None:
+                urls.append(video_url)
+            else:
+                url_list = img.get("url_list")
+                if isinstance(url_list, list) and url_list and isinstance(url_list[0], str):
+                    urls.append(url_list[0])
+                else:
+                    urls.append("")
+        return urls
+    @staticmethod
+    def _extract_item_types(detail: dict) -> list[str]:
+        """从 ``images`` 数组逐项判断媒体类型。
+
+        判断依据（按优先级）:
+        1. ``live_photo_type == 1`` → 动图（返回 ``'video'``）
+        2. ``clip_type`` 为 ``4`` 或 ``5`` → 动图（返回 ``'video'``）
+        3. ``video`` 字段存在且为完整 dict → 动图（返回 ``'video'``）
+        4. 其他情况 → 静态图片（返回 ``'image'``）
+
+        返回列表与 ``images`` 数组一一对应，长度一致。
+
+        参数:
+            detail: ``aweme_detail`` 节点。
+
+        返回:
+            与 ``images`` 数组长度一致的媒体类型列表（'image' 或 'video'）。
+        """
+        images = detail.get("images")
+        if not isinstance(images, list):
+            return []
+        types: list[str] = []
+        for img in images:
+            if not isinstance(img, dict):
+                types.append("image")
+                continue
+            # 1. live_photo_type == 1 → 动图
+            if img.get("live_photo_type") == 1:
+                types.append("video")
+                continue
+            # 2. clip_type 为 4 或 5 → 动图
+            clip_type = img.get("clip_type")
+            if clip_type in (4, 5):
+                types.append("video")
+                continue
+            # 3. video 字段存在且为完整 dict → 动图
+            video = img.get("video")
+            if isinstance(video, dict) and video.get("play_addr"):
+                types.append("video")
+                continue
+            # 4. 其他 → 静态图片
+            types.append("image")
+        return types
 
     @staticmethod
     def _build_detail_params(aweme_id: str) -> dict:
@@ -303,10 +413,14 @@ class VideoParser:
         if video_type == "image_set":
             no_watermark_url = cls._extract_no_watermark_url(detail)
             image_urls = cls._extract_image_urls(detail)
+            item_video_urls = cls._extract_item_video_urls(detail)
+            item_types = cls._extract_item_types(detail)
             duration: str | None = None
         else:
             no_watermark_url = cls._extract_no_watermark_url(detail)
             image_urls = []
+            item_video_urls = []
+            item_types = []
             raw_duration = detail.get("video", {}).get("duration")
             duration = (
                 cls._format_duration(raw_duration)
@@ -326,6 +440,8 @@ class VideoParser:
             cover_url=cls._extract_cover_url(detail),
             no_watermark_url=no_watermark_url,
             image_urls=image_urls,
+            item_video_urls=item_video_urls,
+            item_types=item_types,
             publish_time=cls._format_publish_time(detail.get("create_time")),
             like_count=like_count,
             comment_count=comment_count,
@@ -334,6 +450,27 @@ class VideoParser:
             tags=cls._extract_tags(detail),
             raw_json=detail,
         )
+
+    # @staticmethod
+    # def _dump_detail_payload(aweme_id: str, payload: dict) -> None:
+    #     """将完整 detail 响应 JSON 写入独立文件，不截断。
+    #
+    #     文件保存路径: ``{APP_DATA_DIR}/detail_responses/detail_{aweme_id}_{timestamp}.json``
+    #
+    #     Args:
+    #         aweme_id: 作品 ID，用于文件名。
+    #         payload: 接口返回的完整 JSON 对象。
+    #     """
+    #     try:
+    #         dump_dir = config.APP_DATA_DIR / "detail_responses"
+    #         dump_dir.mkdir(parents=True, exist_ok=True)
+    #         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    #         file_path = dump_dir / f"detail_{aweme_id}_{timestamp}.json"
+    #         with open(file_path, "w", encoding="utf-8") as f:
+    #             json.dump(payload, f, ensure_ascii=False, indent=2)
+    #         logger.info("detail 响应 JSON 已写入: %s", file_path)
+    #     except Exception as e:
+    #         logger.warning("写入 detail 响应 JSON 失败: aweme_id=%s error=%s", aweme_id, e)
 
     # === 主流程 ===
 
@@ -376,8 +513,13 @@ class VideoParser:
             logger.error("响应 JSON 解析失败: aweme_id=%s error=%s", aweme_id, e)
             raise VideoNotFoundError(f"作品详情响应非 JSON: {e}") from e
 
+        # 将完整 detail 响应 JSON 单独写入文件，便于调试接口变更（不截断）
+        # 2026-08-23：请求应 JSON 日志已注释，如需恢复调试请取消注释下一行
+        # self._dump_detail_payload(aweme_id, payload)
+
         status_code = payload.get("status_code")
-        if status_code != 0:
+        # 抖音 API 有时返回字符串，做防御性 int 转换
+        if int(status_code or 0) != 0:
             status_msg = payload.get("status_msg") or "未知错误"
             logger.warning(
                 "作品详情业务错误: aweme_id=%s status_code=%s msg=%s",

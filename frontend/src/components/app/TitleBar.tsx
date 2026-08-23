@@ -7,32 +7,39 @@ import { useThemeStore } from "../../store/themeStore";
 /** 自定义标题栏组件 — 纯无边框窗口的窗口控制与标题区域 */
 export function TitleBar() {
   const [isMaximized, setIsMaximized] = useState(false);
+  const [appWindow, setAppWindow] = useState<ReturnType<typeof getCurrentWindow> | null>(null);
   const { openPanel } = usePanelStore();
   const { theme, toggleTheme } = useThemeStore();
-  const appWindow = getCurrentWindow();
 
   useEffect(() => {
-    // 读取窗口当前最大化状态
-    appWindow.isMaximized().then(setIsMaximized);
-    // 监听窗口尺寸变化，同步最大化/还原图标
-    const unlisten = appWindow.onResized(() => {
-      appWindow.isMaximized().then(setIsMaximized);
-    });
-    return () => {
-      unlisten.then((fn) => fn());
-    };
+    try {
+      const window = getCurrentWindow();
+      setAppWindow(window);
+      // 读取窗口当前最大化状态
+      window.isMaximized().then(setIsMaximized);
+      // 监听窗口尺寸变化，同步最大化/还原图标
+      const unlisten = window.onResized(() => {
+        window.isMaximized().then(setIsMaximized);
+      });
+      return () => {
+        unlisten.then((fn) => fn());
+      };
+    } catch {
+      // 浏览器开发环境没有 Tauri 窗口 API，保持无窗口控制状态
+      return undefined;
+    }
   }, []);
 
   const handleMinimize = () => {
-    appWindow.minimize();
+    appWindow?.minimize();
   };
 
   const handleToggleMaximize = () => {
-    appWindow.toggleMaximize();
+    appWindow?.toggleMaximize();
   };
 
   const handleClose = () => {
-    appWindow.close();
+    appWindow?.close();
   };
 
   const handleOpenSettings = () => {

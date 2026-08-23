@@ -20,10 +20,14 @@ def _watch_stdin_and_exit() -> None:
     避免后端残留占用 18989 端口。
     """
     try:
+        # 该线程是 daemon，阻塞等待 Tauri 管道 EOF 不会阻止主线程退出；
+        # 管道关闭时才终止 sidecar，避免父进程崩溃后残留端口占用。
         sys.stdin.read()
     except Exception:
         pass
     finally:
+        # sidecar 的 Python 进程由 Tauri 管理，使用 os._exit 跳过解释器清理，
+        # 确保 uvicorn 及其子线程不会在宿主已退出后继续存活。
         os._exit(0)
 
 

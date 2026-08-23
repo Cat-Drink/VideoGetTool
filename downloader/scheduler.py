@@ -296,7 +296,7 @@ class Scheduler:
             return
         self._max_concurrent = new_value
         self._semaphore = asyncio.Semaphore(new_value)
-        self._downloader._semaphore = self._semaphore
+        self._downloader.set_semaphore(self._semaphore)
         logger.info("并发数调整为 %d", new_value)
 
     # === 暂停/恢复（设计文档 5.4 节）===
@@ -311,14 +311,23 @@ class Scheduler:
             task_item_id: 任务项 ID
         """
         task = self._tasks.get(task_item_id)
+        task_finished = False
         if task is not None and not task.done():
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await task
             self._tasks.pop(task_item_id, None)
-        self._item_repo.update_status(task_item_id, "paused")
-        # 同步父任务展示统计
+            task_finished = True
+
+        # 只在任务仍在 downloading/processing 状态时才写 paused，
+        # 避免在任务恰好完成时覆盖 "completed" 状态
         item = self._item_repo.get(task_item_id)
+        if item is not None and item.status in ("downloading", "processing"):
+            self._item_repo.update_status(task_item_id, "paused")
+        elif task_finished:
+            logger.info("暂停时 task_item id=%s 已完成，跳过状态覆盖", task_item_id)
+
+        # 同步父任务展示统计
         if item is not None:
             self._sync_task_stats(item.task_id)
         logger.info("已暂停 task_item id=%s", task_item_id)

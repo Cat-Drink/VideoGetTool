@@ -98,11 +98,9 @@ export default function CookiePage() {
   const handleTestAll = async () => {
     setTestingAll(true);
     try {
-      // 测试所有非 invalid 的 Cookie
+      // 测试所有非 invalid 的 Cookie，并发执行以缩短等待时间
       const testable = cookies.filter((c) => c.status !== "invalid");
-      for (const cookie of testable) {
-        await handleTest(cookie.id);
-      }
+      await Promise.allSettled(testable.map((cookie) => handleTest(cookie.id)));
       addToast("全部测试完成", "success");
     } finally {
       setTestingAll(false);

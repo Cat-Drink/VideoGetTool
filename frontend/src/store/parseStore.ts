@@ -16,6 +16,8 @@ export interface ParsedResult {
   imageCount?: number;
   noWatermarkUrl?: string;
   imageUrls?: string[];
+  itemVideoUrls?: string[];
+  itemTypes?: string[];
   publishedAt?: string;
   error?: string;
 }
@@ -64,21 +66,23 @@ parseUrls: async (urls: string[]) => {
 	      const rawResults = await api.parseUrls(urls);
 	      set((state) => {
 	        const offset = state.batchResults.length;
-	        const results: ParsedResult[] = rawResults.map((r: api.ParseResult, i: number) => ({
-	          index: offset + i,
-	          url: urls[i] || r.url || "",
-	          title: r.title || "",
-	          author: r.author || "",
-	          type: (r.type as ParsedResult["type"]) || "video",
-	          awemeId: r.aweme_id,
-	          coverUrl: r.cover_url,
-	          duration: r.duration,
-	          imageCount: r.image_count,
-	          noWatermarkUrl: r.no_watermark_url || undefined,
-	          imageUrls: r.image_urls || undefined,
-	          publishedAt: r.publish_time || undefined,
-	          error: r.error || undefined,
-	        }));
+            const results: ParsedResult[] = rawResults.map((r: api.ParseResult, i: number) => ({
+              index: offset + i,
+          url: urls[i] || r.url || "",
+          title: r.title || "",
+          author: r.author || "",
+          type: (r.type as ParsedResult["type"]) || "video",
+          awemeId: r.aweme_id,
+          coverUrl: r.cover_url,
+          duration: r.duration,
+          imageCount: r.image_count,
+          noWatermarkUrl: r.no_watermark_url || undefined,
+          imageUrls: r.image_urls || undefined,
+          itemVideoUrls: r.item_video_urls || undefined,
+          itemTypes: r.item_types || undefined,
+          publishedAt: r.publish_time || undefined,
+          error: r.error || undefined,
+        }));
 	        return {
 	          // 追加模式：按输入顺序排列表格，新结果追加在底部
 	          batchResults: [...state.batchResults, ...results],
@@ -109,20 +113,22 @@ fetchHome: async (url: string, maxItems = 50) => {
 	      const result = await api.fetchHome(url, maxItems);
 	      set((state) => {
 	        const offset = state.profileResults.length;
-	        const results: ParsedResult[] = (result.items || []).map((r: api.ParseResult, i: number) => ({
-	          index: offset + i,
-	          url: r.url || "",
-	          title: r.title || "",
-	          author: r.author || "",
-	          type: (r.type as ParsedResult["type"]) || "video",
-	          awemeId: r.aweme_id,
-	          coverUrl: r.cover_url,
-	          duration: r.duration,
-	          imageCount: r.image_count,
-	          noWatermarkUrl: r.no_watermark_url || undefined,
-	          imageUrls: r.image_urls || undefined,
-	          publishedAt: r.publish_time || undefined,
-	        }));
+            const results: ParsedResult[] = (result.items || []).map((r: api.ParseResult, i: number) => ({
+              index: offset + i,
+          url: r.url || "",
+          title: r.title || "",
+          author: r.author || "",
+          type: (r.type as ParsedResult["type"]) || "video",
+          awemeId: r.aweme_id,
+          coverUrl: r.cover_url,
+          duration: r.duration,
+          imageCount: r.image_count,
+          noWatermarkUrl: r.no_watermark_url || undefined,
+          imageUrls: r.image_urls || undefined,
+          itemVideoUrls: r.item_video_urls || undefined,
+          itemTypes: r.item_types || undefined,
+          publishedAt: r.publish_time || undefined,
+        }));
 	        return {
 	          // 追加模式：新结果追加在底部，按抓取顺序排列
 	          profileResults: [...state.profileResults, ...results],
@@ -155,12 +161,14 @@ fetchHome: async (url: string, maxItems = 50) => {
         url: item.url,
         title: item.title,
         author: item.author,
-        type: item.type === "long_video" ? "long_video" : item.type === "image_set" ? "image_set" : "video",
+        type: item.type,
         aweme_id: item.awemeId,
         cover_url: item.coverUrl,
         image_count: item.imageCount,
         no_watermark_url: item.noWatermarkUrl,
         image_urls: item.imageUrls,
+        item_video_urls: item.itemVideoUrls,
+        item_types: item.itemTypes,
       }));
 
     if (downloadItems.length === 0) return [];

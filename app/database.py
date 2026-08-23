@@ -20,7 +20,7 @@ from app import config
 from app.models import now_iso
 
 # === Schema 版本 ===
-SCHEMA_VERSION: int = 2
+SCHEMA_VERSION: int = 3
 
 # === 建表 SQL（与设计文档 4.1 节完全一致）===
 CREATE_TASKS_SQL = """
@@ -57,6 +57,7 @@ CREATE TABLE IF NOT EXISTS task_items (
     fail_reason     TEXT,
     local_path      TEXT,
     selected_image_indices TEXT DEFAULT '',
+    item_types      TEXT DEFAULT '',
     created_at      TEXT NOT NULL,
     updated_at      TEXT NOT NULL
 )
@@ -133,9 +134,33 @@ _ALL_CREATE_TABLE_SQL: list[str] = [
 # v1 由 init_db 直接建表，无迁移逻辑；后续版本在此追加
 MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {}
 
+# 已知表名白名单：_column_exists 的 table 参数经 f-string 拼接进 PRAGMA，
+# SQLite 的 PRAGMA 不支持参数占位符，用白名单校验防止表名注入
+_VALID_TABLES: frozenset[str] = frozenset(
+    {
+        "tasks",
+        "task_items",
+        "metadata",
+        "cookies",
+        "config",
+        "schema_version",
+    }
+)
+
 
 def _column_exists(conn: sqlite3.Connection, table: str, column: str) -> bool:
-    """检查表中是否存在指定列（幂等迁移辅助）。"""
+    """检查表中是否存在指定列（幂等迁移辅助）。
+
+    Args:
+        conn: SQLite 连接
+        table: 表名（必须是 _VALID_TABLES 白名单中的表）
+        column: 列名
+
+    Raises:
+        ValueError: 表名不在白名单中
+    """
+    if table not in _VALID_TABLES:
+        raise ValueError(f"非法表名: {table!r}")
     rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
     return any(row["name"] == column for row in rows)
 
@@ -152,6 +177,20 @@ def _migrate_v1_to_v2(conn: sqlite3.Connection) -> None:
 
 
 MIGRATIONS[2] = _migrate_v1_to_v2
+
+
+def _migrate_v2_to_v3(conn: sqlite3.Connection) -> None:
+    """v2 → v3：task_items 表新增 item_types 列。
+
+    v0.2.x 图文动图类型区分：JSON 数组如 '["image","video","image"]'
+    记录每项是静态图片还是动图视频；空字符串表示全为静态图片。幂等：列已存在时跳过。
+    """
+    if _column_exists(conn, "task_items", "item_types"):
+        return
+    conn.execute("ALTER TABLE task_items ADD COLUMN item_types TEXT DEFAULT ''")
+
+
+MIGRATIONS[3] = _migrate_v2_to_v3
 
 
 def get_connection(db_path: Path | str | None = None) -> sqlite3.Connection:

@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+import json
+import logging
 import os
 
 from fastapi import APIRouter, HTTPException
@@ -14,6 +16,7 @@ from app.models import Task, TaskItem, TaskItemStatus, TaskStatus, now_iso
 from backend.state import ctx
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 # === 请求/响应模型 ===
@@ -69,28 +72,21 @@ async def list_tasks():
     """获取所有下载任务列表。"""
     if ctx.task_repo is None:
         raise HTTPException(status_code=503, detail="Service not ready")
-    # 简单获取所有任务 - 通过遍历 id 方式
-    # 更高效的方式是加一个 get_all 方法
-    tasks = []
-    # 尝试从 1 到 1000 扫描，找到所有任务
-    for tid in range(1, 1001):
-        task = ctx.task_repo.get(tid)
-        if task is None:
-            continue
-        tasks.append(
-            TaskResponse(
-                id=task.id,
-                source_type=task.source_type,
-                source_url=task.source_url,
-                status=task.status,
-                total_items=task.total_items,
-                completed_items=task.completed_items,
-                created_at=task.created_at,
-                updated_at=task.updated_at,
-                download_dir=task.download_dir,
-            )
+    tasks = ctx.task_repo.get_all()
+    return [
+        TaskResponse(
+            id=task.id,
+            source_type=task.source_type,
+            source_url=task.source_url,
+            status=task.status,
+            total_items=task.total_items,
+            completed_items=task.completed_items,
+            created_at=task.created_at,
+            updated_at=task.updated_at,
+            download_dir=task.download_dir,
         )
-    return tasks
+        for task in tasks
+    ]
 
 
 @router.get("/tasks/{task_id}/items", response_model=list[TaskItemResponse])
@@ -131,7 +127,12 @@ async def list_task_items(task_id: int):
 @router.post("/start")
 async def start_download(req: StartDownloadRequest):
     """启动下载任务。"""
-    if ctx.task_repo is None or ctx.task_item_repo is None or ctx.scheduler is None:
+    if (
+        ctx.task_repo is None
+        or ctx.task_item_repo is None
+        or ctx.scheduler is None
+        or ctx.config_repo is None
+    ):
         raise HTTPException(status_code=503, detail="Service not ready")
 
     download_dir = req.download_dir or ctx.config_repo.get("download_dir") or ""
@@ -162,6 +163,8 @@ async def start_download(req: StartDownloadRequest):
             aweme_id = item_data.get("aweme_id")
             media_url = item_data.get("no_watermark_url") or ""
             image_urls = item_data.get("image_urls") or []
+            item_video_urls = item_data.get("item_video_urls") or []
+            item_types = item_data.get("item_types") or []
 
             # 前端未提供真实媒体地址时，用 aweme_id 二次解析 detail 接口获取
             if not (media_url or image_urls) and aweme_id and ctx.video_parser is not None:
@@ -169,15 +172,25 @@ async def start_download(req: StartDownloadRequest):
                     video_info = await ctx.video_parser.parse_video(aweme_id, cookie)
                     if item_type == "image_set" and video_info.image_urls:
                         image_urls = video_info.image_urls
+                        item_video_urls = video_info.item_video_urls
+                        item_types = video_info.item_types
                     elif video_info.no_watermark_url:
                         media_url = video_info.no_watermark_url
                 except Exception:
                     # 解析失败时回退到原始 URL，交由下载器/用户界面反馈
                     pass
 
-            # 图集：换行分隔多张图片 URL；视频：使用无水印直链
-            if item_type == "image_set" and image_urls:
-                download_url = "\n".join(image_urls)
+            # 图集：优先使用逐项视频直链（有视频的项下载视频，其余退枝到图片）
+            if item_type == "image_set":
+                # 仅在有视频直链的项上使用视频 URL，其余保留图片 URL
+                if item_video_urls and len(item_video_urls) == len(image_urls):
+                    download_urls = [
+                        v if v else i
+                        for v, i in zip(item_video_urls, image_urls, strict=True)
+                    ]
+                else:
+                    download_urls = image_urls
+                download_url = "\n".join(download_urls) if download_urls else ""
             elif media_url:
                 download_url = media_url
             else:
@@ -197,6 +210,7 @@ async def start_download(req: StartDownloadRequest):
                     if item_type == "image_set" and image_urls
                     else item_data.get("image_count")
                 ),
+                item_types=json.dumps(item_types, ensure_ascii=False) if item_type == "image_set" and item_types else "",
                 status=TaskItemStatus.PENDING.value,
             )
             item_id = ctx.task_item_repo.create(task_item)
@@ -365,8 +379,6 @@ async def verify_completed_files():
     completed_items = ctx.task_item_repo.get_by_status(TaskStatus.COMPLETED.value)
     missing_items: list[dict] = []
     verified_count = 0
-    import logging
-    logger = logging.getLogger(__name__)
 
     for item in completed_items:
         if item.id is None:
@@ -375,10 +387,15 @@ async def verify_completed_files():
         if item.local_path:
             # 路径规范化：统一正斜杠、转为绝对路径
             normalized_path = os.path.normpath(os.path.abspath(item.local_path))
-            if os.path.isfile(normalized_path) and os.path.exists(normalized_path) and os.path.getsize(normalized_path) > 0:
+            if (
+                os.path.isfile(normalized_path)
+                and os.path.exists(normalized_path)
+                and os.path.getsize(normalized_path) > 0
+            ):
                 continue
             logger.warning(
-                "文件校验失败: item_id=%s, local_path=%r, normalized=%r, isfile=%s, exists=%s, size=%s",
+                "文件校验失败: item_id=%s, local_path=%r, normalized=%r, "
+                "isfile=%s, exists=%s, size=%s",
                 item.id,
                 item.local_path,
                 normalized_path,

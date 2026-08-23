@@ -55,6 +55,7 @@ def _row_to_task_item(row: sqlite3.Row) -> TaskItem:
         fail_reason=row["fail_reason"],
         local_path=row["local_path"],
         selected_image_indices=row["selected_image_indices"],
+        item_types=row["item_types"],
         created_at=row["created_at"],
         updated_at=row["updated_at"],
     )
@@ -194,6 +195,13 @@ class TaskRepository:
         ).fetchall()
         return [_row_to_task(row) for row in rows]
 
+    def get_all(self) -> list[Task]:
+        """查询所有任务，按 created_at 排序。"""
+        rows = self._conn.execute(
+            "SELECT * FROM tasks ORDER BY created_at"
+        ).fetchall()
+        return [_row_to_task(row) for row in rows]
+
 
 class TaskItemRepository:
     """任务项表 Repository。"""
@@ -216,8 +224,8 @@ class TaskItemRepository:
                     (task_id, aweme_id, url, title, author, author_sec_id,
                      type, duration, image_count, cover_url, status,
                      downloaded_bytes, total_bytes, retry_count, fail_reason,
-                     local_path, selected_image_indices, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     local_path, selected_image_indices, item_types, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     item.task_id,
@@ -237,6 +245,7 @@ class TaskItemRepository:
                     item.fail_reason,
                     item.local_path,
                     item.selected_image_indices,
+                    item.item_types,
                     created_at,
                     updated_at,
                 ),
@@ -414,7 +423,7 @@ class TaskItemRepository:
         return _row_to_task_item(row) if row else None
 
     def reset_downloading_to_paused(self) -> int:
-        """把所有 downloading 状态的任务项重置为 paused。
+        """把所有 downloading/processing 状态的任务项重置为 paused。
 
         应用启动时把中断的下载项重置为 paused（对应设计文档 4.2 节）。
 
@@ -424,7 +433,7 @@ class TaskItemRepository:
         with self._conn:
             cursor = self._conn.execute(
                 "UPDATE task_items SET status = 'paused', updated_at = ? "
-                "WHERE status = 'downloading'",
+                "WHERE status IN ('downloading', 'processing')",
                 (now_iso(),),
             )
             return cursor.rowcount

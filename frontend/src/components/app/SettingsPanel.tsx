@@ -215,6 +215,7 @@ export default function SettingsPanel() {
                 <span className="text-sm text-text-primary">失败重试次数</span>
                 <span className="text-sm text-text-disabled">3 次（固定）</span>
               </div>
+              <div className="border-t border-border-light" />
             </div>
           </SectionCard>
 

@@ -2,3 +2,5 @@
 fastapi>=0.115
 uvicorn>=0.34
 httpx[http2]>=0.28
+# WebP 解码（动画 WebP 帧提取，FFmpeg 原生解码器不支持动画）
+Pillow>=10

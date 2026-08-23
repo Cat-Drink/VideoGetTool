@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import tempfile
-from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import FastAPI
@@ -18,8 +18,6 @@ from backend.state import ctx
 @pytest.fixture
 def api_client(memory_db):
     """创建带内存数据库的 FastAPI TestClient（同步版，绕过线程问题）。"""
-    from unittest.mock import MagicMock
-
     from app.repositories import ConfigRepository, CookieRepository, MetadataRepository
 
     ctx.conn = memory_db
@@ -47,6 +45,126 @@ def api_client(memory_db):
     ctx.config_repo = None
     ctx.metadata_repo = None
     ctx.scheduler = None
+
+
+class TestTaskRouteIntegration:
+    """下载任务创建与调度委托路由测试。"""
+
+    def test_start_persists_items_and_enqueues_them(self, api_client, memory_db):
+        """启动请求创建任务、任务项并将其交给调度器。"""
+        ctx.config_repo.set("download_dir", "C:/Downloads/default")
+        response = api_client.post(
+            "/api/download/start",
+            json={
+                "source_type": "batch",
+                "source_url": "batch.txt",
+                "items": [
+                    {
+                        "aweme_id": "video-1",
+                        "title": "视频",
+                        "author": "作者",
+                        "type": "video",
+                        "no_watermark_url": "https://example.com/video.mp4",
+                    },
+                    {
+                        "aweme_id": "images-1",
+                        "title": "图集",
+                        "type": "image_set",
+                        "image_urls": ["https://example.com/1.jpg", "https://example.com/2.jpg"],
+                        "item_video_urls": ["https://example.com/1.mp4", ""],
+                    },
+                ],
+            },
+        )
+
+        assert response.status_code == 200
+        task_id = response.json()["task_id"]
+        task = ctx.task_repo.get(task_id)
+        assert task is not None
+        assert task.download_dir == "C:/Downloads/default"
+        assert task.total_items == 2
+
+        items = ctx.task_item_repo.get_by_task(task_id)
+        assert len(items) == 2
+        assert items[0].url == "https://example.com/video.mp4"
+        assert items[1].url == "https://example.com/1.mp4\nhttps://example.com/2.jpg"
+        ctx.scheduler.add_task_items.assert_called_once()
+        assert {item.id for item in ctx.scheduler.add_task_items.call_args.args[0]} == {
+            item.id for item in items
+        }
+
+    def test_task_list_and_scheduler_controls_delegate(self, api_client, memory_db):
+        """任务列表和暂停/恢复控制路由返回状态并委托调度器。"""
+        task_id = ctx.task_repo.create(
+            Task(
+                id=None,
+                source_type="single",
+                source_url="https://example.com/source",
+                status="pending",
+                download_dir="C:/Downloads",
+            )
+        )
+        response = api_client.get("/api/download/tasks")
+        assert response.status_code == 200
+        assert response.json()[0]["id"] == task_id
+
+        scheduler = ctx.scheduler
+        scheduler.pause = AsyncMock()
+        scheduler.resume = AsyncMock()
+        scheduler.pause_all = AsyncMock()
+        scheduler.resume_all = AsyncMock()
+
+        assert api_client.post("/api/download/pause/11").status_code == 200
+        assert api_client.post("/api/download/resume/11").status_code == 200
+        assert api_client.post("/api/download/pause-all").status_code == 200
+        assert api_client.post("/api/download/resume-all").status_code == 200
+        scheduler.pause.assert_awaited_once_with(11)
+        scheduler.resume.assert_awaited_once_with(11)
+        scheduler.pause_all.assert_awaited_once_with()
+        scheduler.resume_all.assert_awaited_once_with()
+
+    def test_retry_and_delete_task_item_lifecycle(self, api_client, memory_db):
+        """单项重试清理状态，删除最后一项时同步删除父任务。"""
+        task_id = ctx.task_repo.create(
+            Task(
+                id=None,
+                source_type="single",
+                source_url="source",
+                status="failed",
+                download_dir="C:/Downloads",
+            )
+        )
+        item_id = ctx.task_item_repo.create(
+            TaskItem(
+                id=None,
+                task_id=task_id,
+                aweme_id="failed-1",
+                url="https://example.com/file.mp4",
+                type="video",
+                status="failed",
+                downloaded_bytes=10,
+                total_bytes=20,
+                retry_count=2,
+                fail_reason="network",
+                local_path="C:/Downloads/file.mp4",
+            )
+        )
+
+        response = api_client.post(f"/api/download/retry/{item_id}")
+        assert response.status_code == 200
+        retried = ctx.task_item_repo.get(item_id)
+        assert retried is not None
+        assert retried.status == "pending"
+        assert retried.downloaded_bytes == 0
+        assert retried.total_bytes == 0
+        assert retried.fail_reason is None
+        assert retried.local_path is None
+        ctx.scheduler.add_task_items.assert_called_once()
+
+        assert api_client.delete(f"/api/download/tasks/items/{item_id}").status_code == 200
+        assert ctx.task_item_repo.get(item_id) is None
+        assert ctx.task_repo.get(task_id) is None
+        assert api_client.delete("/api/download/tasks/items/9999").status_code == 404
 
 
 class TestTaskItemProgress:

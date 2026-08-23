@@ -3,6 +3,7 @@ import { Loader2 } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Textarea } from "../components/ui/textarea";
+import { useNavigate } from "react-router-dom";
 import { useToastStore } from "../store/toastStore";
 import * as api from "../lib/api";
 import { pickDirectory } from "../lib/tauri";
@@ -17,6 +18,7 @@ export default function OnboardingPage() {
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
   const { addToast } = useToastStore();
+  const navigate = useNavigate();
 
   // 加载已有配置
   useEffect(() => {
@@ -43,7 +45,7 @@ export default function OnboardingPage() {
   const handleSaveDir = async () => {
     setLoading(true);
     try {
-      await api.updateConfig({ download_dir: downloadDir } as any);
+      await api.updateConfig({ download_dir: downloadDir });
       setStep("cookie");
     } catch (e) {
       addToast("保存目录失败", "error");
@@ -79,7 +81,7 @@ export default function OnboardingPage() {
   const handleSkip = async () => {
     setLoading(true);
     try {
-      await api.updateConfig({ onboarding_done: true } as any);
+      await api.updateConfig({ onboarding_done: true });
       setStep("complete");
     } catch {
       // 即使保存失败也允许继续
@@ -92,10 +94,10 @@ export default function OnboardingPage() {
   const handleComplete = async () => {
     setLoading(true);
     try {
-      await api.updateConfig({ onboarding_done: true } as any);
-      window.location.href = "/download";
+      await api.updateConfig({ onboarding_done: true });
+      navigate("/download");
     } catch {
-      window.location.href = "/download";
+      navigate("/download");
     } finally {
       setLoading(false);
     }

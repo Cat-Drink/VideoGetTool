@@ -94,7 +94,10 @@ export default function BatchFetchPage() {
 
   const handleDeleteSelected = () => {
     if (selected.size === 0) return;
-    removeBatchItems(selected);
+    const selectedIndices = new Set(
+      parsed.filter((_, i) => selected.has(i)).map((item) => item.index),
+    );
+    removeBatchItems(selectedIndices);
     setSelected(new Set());
     addToast(`已删除 ${selected.size} 项`, "success");
   };
@@ -179,7 +182,7 @@ export default function BatchFetchPage() {
           <div className="flex-1 overflow-y-auto">
             {parsed.map((item, i) => (
               <div
-                key={i}
+                key={item.awemeId || item.url || `item-${item.index}`}
                 className={`flex items-center gap-3 px-6 py-2 border-b border-border-light hover:bg-bg-hover transition-colors cursor-pointer ${selected.has(i) ? "bg-bg-selected" : ""} ${item.error ? "opacity-60" : ""}`}
                 onClick={() => !item.error && toggleSelect(i)}
               >

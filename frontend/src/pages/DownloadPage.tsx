@@ -26,8 +26,7 @@ export default function DownloadPage() {
   const handleDeleteItem = async (itemId: number) => {
     try {
       await api.deleteTaskItem(itemId);
-      addToast("任务已删除", "success");
-      loadTasks();
+      await loadTasks();
     } catch (e) {
       addToast("删除失败", "error");
     }

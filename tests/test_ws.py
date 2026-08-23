@@ -73,8 +73,14 @@ async def test_ws_pushes_all_statuses(memory_db):
         async def send_json(self, data):
             received.append(data)
 
+    # 共享轮询任务通过 manager.broadcast 广播，需要先把 FakeWS 注册进管理器
+    from backend.api.ws import manager
+
+    fake_ws = FakeWS()
+    manager.register_for_test(fake_ws)
+
     stop_event = asyncio.Event()
-    push_task = asyncio.create_task(_push_progress_updates(FakeWS(), stop_event))
+    push_task = asyncio.create_task(_push_progress_updates(stop_event))
 
     await asyncio.sleep(1.1)
     stop_event.set()

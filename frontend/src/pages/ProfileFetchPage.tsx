@@ -84,7 +84,10 @@ export default function ProfileFetchPage() {
 
   const handleDeleteSelected = () => {
     if (selected.size === 0) return;
-    removeProfileItems(selected);
+    const selectedIndices = new Set(
+      filtered.filter((_, i) => selected.has(i)).map((item) => item.index),
+    );
+    removeProfileItems(selectedIndices);
     setSelected(new Set());
   };
 

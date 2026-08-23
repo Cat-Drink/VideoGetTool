@@ -6,8 +6,8 @@ const API_BASE = "http://127.0.0.1:18989/api";
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const url = `${API_BASE}${path}`;
   const res = await fetch(url, {
-    headers: { "Content-Type": "application/json", ...options?.headers },
     ...options,
+    headers: { "Content-Type": "application/json", ...options?.headers },
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -18,7 +18,8 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 
 // ============ 数据类型 ============
 
-export type TaskStatus = "pending" | "downloading" | "paused" | "completed" | "failed";
+export type TaskStatus = "pending" | "downloading" | "paused" | "processing" | "completed" | "failed";
+export type CookieStatus = "valid" | "invalid" | "untested";
 
 export interface TaskResponse {
   id: number;
@@ -91,7 +92,7 @@ export async function fetchTaskItems(taskId: number): Promise<TaskItemResponse[]
 export async function startDownload(params: {
   source_type?: string;
   source_url?: string | null;
-  items?: { url: string; title?: string; author?: string; type?: string; aweme_id?: string; cover_url?: string; image_count?: number; no_watermark_url?: string; image_urls?: string[] }[];
+  items?: { url: string; title?: string; author?: string; type?: string; aweme_id?: string; cover_url?: string; image_count?: number; no_watermark_url?: string; image_urls?: string[]; item_video_urls?: string[]; item_types?: string[] }[];
   download_dir?: string;
 }): Promise<{ task_id: number; message: string }> {
   return request("/download/start", {
@@ -154,6 +155,8 @@ export interface ParseResult {
   image_count?: number;
   no_watermark_url?: string;
   image_urls?: string[];
+  item_video_urls?: string[];
+  item_types?: string[];
   publish_time?: string;
   error?: string;
 }

@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import os
 import re
 import sqlite3
@@ -157,6 +158,10 @@ class Downloader:
         # 并发写同一个 .part 文件导致合并阶段文件占用冲突（WinError 32）
         self._file_locks: dict[str, asyncio.Lock] = {}
 
+    def set_semaphore(self, semaphore: asyncio.Semaphore) -> None:
+        """设置并发信号量（由 Scheduler 在并发数调整时调用）。"""
+        self._semaphore = semaphore
+
     # === 路径推导 ===
 
     def _get_download_dir(self, task_item: TaskItem) -> Path:
@@ -176,7 +181,7 @@ class Downloader:
             raise ValueError(f"task_id={task_item.task_id} 的 download_dir 为空或 task 不存在")
         return Path(task.download_dir)
 
-    def _get_final_path(self, task_item: TaskItem, url: str, index: int | None = None) -> Path:
+    def _get_final_path(self, task_item: TaskItem, url: str, index: int | None = None, item_subtype: str | None = None) -> Path:
         """推导最终文件路径。
 
         命名规范（问题归档 #4）：采用"作者名 + 源媒体标题"截取前若干字
@@ -189,12 +194,13 @@ class Downloader:
             task_item: 任务项
             url: 下载直链（用于提取扩展名）
             index: 图集图片序号（从 1 开始），仅 image_set 使用
+            item_subtype: 图集子项类型（'image' 静态图片 / 'video' 动图视频）
 
         Returns:
             最终文件路径
         """
         download_dir = self._get_download_dir(task_item)
-        ext = self._extract_extension(url, task_item.type)
+        ext = self._extract_extension(url, task_item.type, item_subtype)
         base_name = self._build_base_name(task_item)
         if task_item.type == "image_set" and index is not None:
             target_dir = download_dir / base_name
@@ -214,7 +220,7 @@ class Downloader:
         Returns:
             清洗截断后的基础名
         """
-        raw = f"{task_item.author or ''}{task_item.title or ''}".strip()
+        raw = f"{task_item.author or ''} - {task_item.title or ''}".strip(" -").strip()
         if not raw:
             return task_item.aweme_id or f"item_{task_item.id}"
         cleaned = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", raw)
@@ -235,14 +241,15 @@ class Downloader:
         return Path(str(final_path) + ".part")
 
     @staticmethod
-    def _extract_extension(url: str, item_type: str) -> str:
+    def _extract_extension(url: str, item_type: str, item_subtype: str | None = None) -> str:
         """从 URL 提取文件扩展名。
 
         从 URL path 部分提取扩展名，无法识别时按类型给默认值。
 
         Args:
             url: 下载直链
-            item_type: 任务项类型
+            item_type: 任务项类型（video / image_set / long_video）
+            item_subtype: 图集子项类型（'image' 静态图片 / 'video' 动图视频）
 
         Returns:
             文件扩展名（含点号，如 ``.mp4``）
@@ -252,7 +259,7 @@ class Downloader:
         if suffix and len(suffix) <= 5:
             return suffix
         # 默认扩展名
-        if item_type == "image_set":
+        if item_type == "image_set" and item_subtype != "video":
             return ".jpg"
         return ".mp4"
 
@@ -354,8 +361,6 @@ class Downloader:
         logger.info("等待 %d 秒后重试（第 %d 次）", wait_seconds, retry_count)
         await asyncio.sleep(wait_seconds)
 
-    # === 文件操作 ===
-
     def _finalize_file(self, part_path: Path, final_path: Path) -> str:
         """将 .part 文件重命名为最终文件名。
 
@@ -408,8 +413,6 @@ class Downloader:
         Returns:
             (start, end) 字节范围列表，end 为包含的末字节偏移
         """
-        import math
-
         segment_count = min(math.ceil(total_bytes / SEGMENT_SIZE), MAX_SEGMENTS)
         segment_size = math.ceil(total_bytes / segment_count)
         segments: list[tuple[int, int]] = []
@@ -597,16 +600,24 @@ class Downloader:
             target_dir = final_path.parent
             target_dir.mkdir(parents=True, exist_ok=True)
             # 图集：按目标文件夹串行化，防止同名图集并发写冲突
-            lock = self._file_locks.setdefault(str(target_dir), asyncio.Lock())
+            lock_key = str(target_dir)
+            lock = self._file_locks.setdefault(lock_key, asyncio.Lock())
             async with lock:
-                return await self._download_image_set(task_item, urls, target_dir)
+                try:
+                    return await self._download_image_set(task_item, urls, target_dir)
+                finally:
+                    self._file_locks.pop(lock_key, None)
 
         final_path = self._get_final_path(task_item, task_item.url)
         final_path.parent.mkdir(parents=True, exist_ok=True)
         # 视频：按目标文件串行化，防止同名目标并发写 .part 冲突
-        lock = self._file_locks.setdefault(str(final_path), asyncio.Lock())
+        lock_key = str(final_path)
+        lock = self._file_locks.setdefault(lock_key, asyncio.Lock())
         async with lock:
-            return await self._download_single_file(task_item, task_item.url, final_path)
+            try:
+                return await self._download_single_file(task_item, task_item.url, final_path)
+            finally:
+                self._file_locks.pop(lock_key, None)
 
     async def _download_single_file(
         self,
@@ -657,8 +668,21 @@ class Downloader:
                 if downloaded_bytes > 0:
                     headers["Range"] = f"bytes={downloaded_bytes}-"
 
+                # 总字节数：断点续传已下载部分 + 本次 Content-Length
+                # 在 try 外初始化，取消时简化为 0 兜底
+                total_bytes = 0
                 try:
                     async with self._http_client.stream("GET", url, headers=headers) as response:
+                        # ISSUE-20 诊断：记录响应 Content-Type，识别 CDN 返回
+                        # WebP 缩略图占位（本应返回 video_mp4 却给了 image/webp）
+                        resp_content_type = response.headers.get("Content-Type", "").lower()
+                        if "webp" in resp_content_type or "image" in resp_content_type:
+                            logger.warning(
+                                "下载响应为图片而非视频: url=%s content_type=%s status=%d",
+                                url[:200],
+                                resp_content_type,
+                                response.status_code,
+                            )
                         if response.status_code == 200:
                             # 服务端不支持 Range 或文件已变，从头下载
                             downloaded_bytes = 0
@@ -689,7 +713,10 @@ class Downloader:
                             return DownloadResult(success=False, error=reason)
 
                         # 流式接收
-                        content_length = int(response.headers.get("Content-Length", 0))
+                        try:
+                            content_length = int(response.headers.get("Content-Length", 0))
+                        except (ValueError, TypeError):
+                            content_length = 0
                         total_bytes = downloaded_bytes + content_length
                         downloaded_bytes = await self._stream_to_file(
                             response,
@@ -711,8 +738,7 @@ class Downloader:
                     # 暂停/取消：持久化进度，保留 .part 文件，不修改 status（归 Scheduler）
                     # _stream_to_file 可能已持久化更准确的值，此处读 .part 实际大小兜底
                     actual_bytes = part_path.stat().st_size if part_path.exists() else 0
-                    total = total_bytes if "total_bytes" in locals() else 0
-                    self._persist_progress(task_item.id, actual_bytes, total)
+                    self._persist_progress(task_item.id, actual_bytes, total_bytes)
                     logger.info(
                         "下载被取消 task_item id=%s 已保存进度 %d bytes",
                         task_item.id,
@@ -903,6 +929,30 @@ class Downloader:
             return False
         return "HTTP 403" in error or "HTTP 404" in error
 
+    @staticmethod
+    def _get_item_subtype(task_item: TaskItem, idx: int) -> str | None:
+        """获取图集指定索引的子项媒体类型。
+
+        从 ``task_item.item_types`` JSON 数组中解析第 idx 项的类型。
+        无 item_types 数据时返回 None（表示按默认类型处理）。
+
+        Args:
+            task_item: 任务项
+            idx: 0-based 索引
+
+        Returns:
+            'image' 或 'video'；无法确定时返回 None
+        """
+        if not task_item.item_types:
+            return None
+        try:
+            types = json.loads(task_item.item_types)
+            if isinstance(types, list) and 0 <= idx < len(types):
+                return types[idx]
+        except (json.JSONDecodeError, IndexError):
+            pass
+        return None
+
     def _can_reparse(self) -> bool:
         """是否具备图片直链重新解析能力。
 
@@ -963,7 +1013,8 @@ class Downloader:
                 e,
             )
             return None
-        new_all_urls = list(video_info.image_urls or [])
+        # v0.2.x：使用 merged_item_urls 确保动图视频直链被保留
+        new_all_urls = list(video_info.merged_item_urls or [])
         new_selected = _select_urls_by_indices(new_all_urls, task_item.selected_image_indices)
         if 0 <= idx < len(new_selected):
             return new_selected[idx]
@@ -1014,7 +1065,9 @@ class Downloader:
 
         async def _download_one(seq: int, url: str) -> DownloadResult:
             nonlocal completed_count
-            final_path = self._get_final_path(task_item, url, index=seq)
+            # v0.2.x：逐项媒体类型（动图项存为视频，其余存为图片）
+            item_subtype = self._get_item_subtype(task_item, seq - 1)
+            final_path = self._get_final_path(task_item, url, index=seq, item_subtype=item_subtype)
             final_path.parent.mkdir(parents=True, exist_ok=True)
             result = await self._download_single_file(
                 task_item,
