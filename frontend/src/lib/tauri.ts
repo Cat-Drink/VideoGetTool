@@ -2,6 +2,12 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
+import { revealItemInDir } from "@tauri-apps/plugin-opener";
+
+/** 打开文件所在文件夹（在资源管理器中选中该文件） */
+export async function openInFolder(path: string): Promise<void> {
+  await revealItemInDir(path);
+}
 
 /** 打开外部链接 */
 export async function openExternal(url: string): Promise<void> {

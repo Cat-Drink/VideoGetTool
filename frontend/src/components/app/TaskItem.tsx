@@ -1,4 +1,5 @@
 import { Play, Pause, RotateCw, FolderOpen, RefreshCw, Trash2 } from "lucide-react";
+import { openInFolder } from "../../lib/tauri";
 import { Progress } from "../ui/progress";
 import { Badge } from "../ui/badge";
 import type { DisplayTask } from "../../store/taskStore";
@@ -82,6 +83,16 @@ export function TaskItem({ task, onPause, onResume, onRetry, onDelete }: TaskIte
             title={task.status === "downloading" ? "暂停" : "恢复"}
           >
             {config.actionIcon}
+          </button>
+        )}
+        {/* 打开所在文件夹（仅已完成显示） */}
+        {task.status === "completed" && task.localPath && (
+          <button
+            onClick={() => openInFolder(task.localPath!)}
+            className="w-8 h-8 flex items-center justify-center rounded-sm text-text-secondary hover:bg-bg-hover hover:text-text-primary transition-colors"
+            title="打开所在文件夹"
+          >
+            <FolderOpen size={14} />
           </button>
         )}
         {/* 重新执行 */}
