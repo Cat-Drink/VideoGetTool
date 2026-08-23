@@ -60,13 +60,6 @@ export default function ProfileFetchPage() {
     return true;
   });
 
-  /** 获取 filtered 索引对应的原始 results 索引 */
-  const getOriginalIndex = (filterIdx: number): number => {
-    const item = filtered[filterIdx];
-    if (!item) return -1;
-    return results.findIndex((r) => r === item);
-  };
-
   const toggleSelect = (filterIdx: number) => {
     const next = new Set(selected);
     const nextImgSel = new Map(imageSelection);

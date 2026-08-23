@@ -169,9 +169,18 @@ fetchHome: async (url: string, maxItems = 50) => {
         let filteredVideoUrls = item.itemVideoUrls;
         let filteredTypes = item.itemTypes;
         if (selectedImgIndices && item.imageUrls && item.imageUrls.length > 0) {
-          filteredUrls = selectedImgIndices.map((idx) => item.imageUrls![idx]).filter(Boolean);
-          filteredVideoUrls = selectedImgIndices.map((idx) => item.itemVideoUrls?.[idx]).filter(Boolean);
-          filteredTypes = selectedImgIndices.map((idx) => item.itemTypes?.[idx]).filter(Boolean);
+          const urls = item.imageUrls;
+          filteredUrls = selectedImgIndices
+            .map((idx) => urls[idx])
+            .filter((v): v is string => Boolean(v));
+          const videoUrls = item.itemVideoUrls;
+          filteredVideoUrls = videoUrls
+            ? selectedImgIndices.map((idx) => videoUrls[idx]).filter((v): v is string => Boolean(v))
+            : undefined;
+          const itemTypes = item.itemTypes;
+          filteredTypes = itemTypes
+            ? selectedImgIndices.map((idx) => itemTypes[idx]).filter((v): v is string => Boolean(v))
+            : undefined;
         }
         return {
           url: item.url,
