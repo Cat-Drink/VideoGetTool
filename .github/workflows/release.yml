@@ -92,11 +92,6 @@ jobs:
           cd frontend
           npm ci
 
-      - name: 下载 FFmpeg 静态二进制
-        shell: bash
-        run: |
-          python scripts/download_ffmpeg.py
-
       - name: PyInstaller 打包 sidecar（使用 spec 文件，自动收集 conda DLL）
         run: |
           pyinstaller backend-sidecar.spec --noconfirm --distpath frontend/src-tauri/binaries

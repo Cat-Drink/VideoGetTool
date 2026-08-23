@@ -33,7 +33,7 @@ a = Analysis(
         'liblzma.dll',
         'libexpat.dll',
     ),
-    datas=[('backend', 'backend'), ('app', 'app'), ('crawlers', 'crawlers'), ('downloader', 'downloader'), ('resources/ffmpeg/ffmpeg.exe', '.')],
+    datas=[('backend', 'backend'), ('app', 'app'), ('crawlers', 'crawlers'), ('downloader', 'downloader')],
     hiddenimports=['uvicorn.logging', 'uvicorn.loops.auto', 'uvicorn.loops.asyncio', 'uvicorn.protocols.http.auto', 'uvicorn.protocols.http.h11_impl', 'uvicorn.protocols.websockets.auto', 'uvicorn.protocols.websockets.wsproto_impl', 'uvicorn.lifespan.on', 'starlette.middleware.cors', 'databases', 'sqlalchemy', 'httpx', 'httpcore', 'anyio', 'sniffio'],
     hookspath=[],
     hooksconfig={},
