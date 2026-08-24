@@ -17,6 +17,8 @@ export interface WsMessage {
   type: string;
   updates?: ProgressUpdate[];
   task_id?: number;
+  task_item_id?: number;
+  fail_reason?: string;
   completed_count?: number;
   failed_count?: number;
   total_count?: number;

@@ -1,9 +1,11 @@
-/** 音效播放模块 - 支持 Web Audio 合成音效与外部 MP3 文件 */
+/** 音效播放模块 - 支持 Web Audio 合成音效、外部 MP3 文件与原生 WAV 播放 */
+
+import { invoke } from "@tauri-apps/api/core";
 
 export type NotificationType = "completed" | "failed";
 
-/** 音效选择：内置合成音或自定义 MP3 */
-export type SoundChoice = "default" | "soft" | "cheerful" | "custom";
+/** 音效选择：内置合成音、自定义 MP3 或自定义 WAV */
+export type SoundChoice = "default" | "soft" | "cheerful" | "custom" | "custom_wav";
 
 /** 获取 AudioContext（懒初始化，兼容浏览器） */
 let audioCtx: AudioContext | null = null;
@@ -142,22 +144,40 @@ function playMp3(url: string, volume: number): void {
   }
 }
 
+// ============ WAV 原生播放支持 ============
+
+/**
+ * 通过 Rust 侧 PlaySoundW 播放本地 .wav 文件
+ *
+ * 仅 Windows 平台有效，路径必须是本地绝对路径。
+ * 异步非阻塞，静默失败。
+ */
+export async function playWavSound(path: string): Promise<void> {
+  try {
+    await invoke("play_wav_sound", { path });
+  } catch (e) {
+    console.warn("[sound] WAV 播放失败:", e);
+  }
+}
+
 // ============ 主入口 ============
 
 export interface SoundOptions {
-  /** 音效选择：default / soft / cheerful / custom */
+  /** 音效选择：default / soft / cheerful / custom / custom_wav */
   choice?: SoundChoice;
   /** 音量 0~1 */
   volume?: number;
   /** custom 模式下使用的 MP3 文件路径 */
   customUrl?: string;
+  /** custom_wav 模式下使用的 WAV 文件路径（仅 Windows 本地路径） */
+  customWavPath?: string;
 }
 
 /**
  * 播放通知提示音
  *
  * @param type - 音效类型："completed" | "failed"
- * @param options - 音效配置（choice / volume / customUrl）
+ * @param options - 音效配置（choice / volume / customUrl / customWavPath）
  */
 export function playNotificationSound(
   type: NotificationType,
@@ -165,6 +185,12 @@ export function playNotificationSound(
 ): void {
   const volume = options.volume ?? 0.5;
   const choice = options.choice ?? "default";
+
+  // 自定义 WAV 模式：通过 Rust 命令播放（不阻塞，不返回错误）
+  if (choice === "custom_wav" && options.customWavPath) {
+    playWavSound(options.customWavPath);
+    return;
+  }
 
   // 自定义 MP3 模式：直接播放用户选择的文件（若有）
   if (choice === "custom" && options.customUrl) {

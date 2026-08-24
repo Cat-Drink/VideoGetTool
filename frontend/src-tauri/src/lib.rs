@@ -30,10 +30,56 @@ fn get_app_version() -> String {
     "0.3.3".to_string()
 }
 
+/// 播放本地 .wav 文件（Windows 原生 PlaySoundW，异步非阻塞播放）
+///
+/// 适用于在触发系统通知时同步播放自定义提示音。
+/// 路径应为绝对路径，wav 格式 PCM / ADPCM 均可。
+/// 若文件不存在或格式不支持，静默失败。
+#[cfg(windows)]
+#[tauri::command]
+fn play_wav_sound(path: String) {
+    use std::ffi::OsStr;
+    use std::os::windows::ffi::OsStrExt;
+
+    #[link(name = "winmm")]
+    extern "system" {
+        fn PlaySoundW(pszSound: *const u16, hmod: *mut std::ffi::c_void, fdwSound: u32) -> i32;
+    }
+
+    const SND_FILENAME: u32 = 0x00020000;
+    const SND_ASYNC: u32 = 0x00000001;
+    const SND_NODEFAULT: u32 = 0x00000002;
+
+    let wide: Vec<u16> = OsStr::new(&path)
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    unsafe {
+        PlaySoundW(
+            wide.as_ptr(),
+            std::ptr::null_mut(),
+            SND_ASYNC | SND_FILENAME | SND_NODEFAULT,
+        );
+    }
+}
+
+#[cfg(not(windows))]
+#[tauri::command]
+fn play_wav_sound(_path: String) {
+    // 非 Windows 平台忽略
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            // 用户点击通知（或从第二个实例启动）时，激活并显示主窗口
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
@@ -102,7 +148,11 @@ pub fn run() {
 
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![open_link, get_app_version])
+        .invoke_handler(tauri::generate_handler![
+            open_link,
+            get_app_version,
+            play_wav_sound,
+        ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| {

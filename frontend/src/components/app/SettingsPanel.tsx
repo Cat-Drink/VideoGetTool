@@ -353,19 +353,20 @@ export default function SettingsPanel() {
                   <option value="soft">轻柔</option>
                   <option value="cheerful">活泼</option>
                   <option value="custom">自定义 MP3</option>
+                  <option value="custom_wav">自定义 WAV（原生）</option>
                 </select>
               </div>
-              {soundChoice === "custom" && (
+              {(soundChoice === "custom" || soundChoice === "custom_wav") && (
                 <div className="border-t border-border-light" />
               )}
-              {soundChoice === "custom" && (
+              {(soundChoice === "custom" || soundChoice === "custom_wav") && (
                 <div className="flex items-center justify-between h-12">
                   <span className="text-sm text-text-primary">自定义音效文件</span>
                   <div className="flex items-center gap-2">
                     <input
                       type="text"
                       className="text-sm w-48 bg-bg-base border border-border-light rounded px-2 py-1"
-                      placeholder="选择 MP3 文件..."
+                      placeholder={soundChoice === "custom_wav" ? "选择 WAV 文件..." : "选择 MP3 文件..."}
                       value={customSoundUrl}
                       onChange={(e) => setCustomSoundUrl(e.target.value)}
                       readOnly
@@ -374,10 +375,13 @@ export default function SettingsPanel() {
                       variant="ghost"
                       size="sm"
                       onClick={async () => {
+                        const isWav = soundChoice === "custom_wav";
                         try {
                           const { open } = await import("@tauri-apps/plugin-dialog");
                           const selected = await open({
-                            filters: [{ name: "MP3 音效", extensions: ["mp3"] }],
+                            filters: isWav
+                              ? [{ name: "WAV 音效", extensions: ["wav"] }]
+                              : [{ name: "MP3 音效", extensions: ["mp3"] }],
                             multiple: false,
                           });
                           if (selected) {
@@ -385,7 +389,7 @@ export default function SettingsPanel() {
                           }
                         } catch (e) {
                           // 非 Tauri 环境或对话框失败
-                          const path = window.prompt("请输入 MP3 文件路径：");
+                          const path = window.prompt(isWav ? "请输入 WAV 文件路径：" : "请输入 MP3 文件路径：");
                           if (path) setCustomSoundUrl(path);
                         }
                       }}

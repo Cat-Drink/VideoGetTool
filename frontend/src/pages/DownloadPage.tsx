@@ -17,7 +17,7 @@ import { sendSystemNotification } from "../lib/notify";
 interface NotifySettings {
   notificationEnabled: boolean;
   soundEnabled: boolean;
-  soundChoice: "default" | "soft" | "cheerful" | "custom";
+  soundChoice: "default" | "soft" | "cheerful" | "custom" | "custom_wav";
   soundVolume: number;
   customSoundUrl: string;
 }
@@ -57,6 +57,7 @@ export default function DownloadPage() {
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const prevStatusRef = useRef<Map<number, string>>(new Map());
   const notifiedTaskRef = useRef<Set<number>>(new Set());
+  const notifiedItemRef = useRef<Set<number>>(new Set());
 
   const handleDeleteItem = async (itemId: number) => {
     try {
@@ -100,7 +101,8 @@ export default function DownloadPage() {
           playNotificationSound("completed", {
             choice: settings.soundChoice,
             volume: settings.soundVolume,
-            customUrl: settings.customSoundUrl || undefined,
+            customUrl: settings.soundChoice === "custom" ? (settings.customSoundUrl || undefined) : undefined,
+            customWavPath: settings.soundChoice === "custom_wav" ? (settings.customSoundUrl || undefined) : undefined,
           });
         }
         return;
@@ -126,20 +128,61 @@ export default function DownloadPage() {
           playNotificationSound("failed", {
             choice: settings.soundChoice,
             volume: settings.soundVolume,
-            customUrl: settings.customSoundUrl || undefined,
+            customUrl: settings.soundChoice === "custom" ? (settings.customSoundUrl || undefined) : undefined,
+            customWavPath: settings.soundChoice === "custom_wav" ? (settings.customSoundUrl || undefined) : undefined,
           });
         }
         return;
       }
 
-      // 处理逐项进度更新（保留原有逻辑）
+      // 处理单项完成事件（item_completed / item_failed）
+      if (msg.type === "item_completed" || msg.type === "item_failed") {
+        const itemId = msg.task_item_id!;
+        if (notifiedItemRef.current.has(itemId)) return;
+        notifiedItemRef.current.add(itemId);
+
+        const isCompleted = msg.type === "item_completed";
+        const settings = await loadNotifySettings();
+
+        if (settings.notificationEnabled) {
+          sendSystemNotification(
+            isCompleted ? "下载完成" : "下载失败",
+            isCompleted ? "一项下载任务已完成" : (msg.fail_reason || "一项下载任务失败"),
+          );
+        }
+        addToast(
+          isCompleted ? "一项下载任务已完成" : `下载失败: ${msg.fail_reason || "未知错误"}`,
+          isCompleted ? "success" : "error",
+        );
+        if (settings.soundEnabled) {
+          playNotificationSound(isCompleted ? "completed" : "failed", {
+            choice: settings.soundChoice,
+            volume: settings.soundVolume,
+            customUrl: settings.soundChoice === "custom" ? (settings.customSoundUrl || undefined) : undefined,
+            customWavPath: settings.soundChoice === "custom_wav" ? (settings.customSoundUrl || undefined) : undefined,
+          });
+        }
+        return;
+      }
+
+      // 处理逐项进度更新
       if (msg.type === "progress" && msg.updates) {
         for (const update of msg.updates) {
           const prevStatus = prevStatusRef.current.get(update.task_item_id);
           const newStatus = update.status;
           const isTerminal = (s: string) => s === "completed" || s === "failed";
 
-          if (prevStatus && !isTerminal(prevStatus) && isTerminal(newStatus)) {
+          const shouldNotifyItem =
+            // 情形1: prevStatus 存在且从非终止态变为终止态（常规进度转换）
+            (prevStatus && !isTerminal(prevStatus) && isTerminal(newStatus)) ||
+            // 情形2: prevStatus 不存在（首次出现），且 newStatus 是终止态，
+            // 且该 item 尚未被通知过（捕获快速下载/轮询首次更新场景）
+            (!prevStatus && isTerminal(newStatus) && !notifiedItemRef.current.has(update.task_item_id));
+
+          if (shouldNotifyItem) {
+            if (isTerminal(newStatus)) {
+              notifiedItemRef.current.add(update.task_item_id);
+            }
             playNotificationSound(newStatus as "completed" | "failed");
             addToast(
               newStatus === "completed" ? "任务下载完成" : "任务下载失败",
