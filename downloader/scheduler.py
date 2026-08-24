@@ -75,6 +75,8 @@ class Scheduler:
         http_client: httpx.AsyncClient | None = None,
         on_item_completed: Callable[[int], None] | None = None,
         on_item_failed: Callable[[int, str], None] | None = None,
+        on_task_completed: Callable[[int, int, int], None] | None = None,
+        on_task_failed: Callable[[int, int, int], None] | None = None,
         on_progress: Callable[[list[ProgressUpdate]], None] | None = None,
         video_parser: VideoParser | None = None,
         cookie_repository: CookieRepository | None = None,
@@ -98,6 +100,8 @@ class Scheduler:
         self._task_repo = TaskRepository(conn)
         self._on_item_completed = on_item_completed
         self._on_item_failed = on_item_failed
+        self._on_task_completed = on_task_completed
+        self._on_task_failed = on_task_failed
 
         # clamp 并发数到 [1, 10]
         self._max_concurrent = max(1, min(max_concurrent, MAX_CONCURRENT_LIMIT))
@@ -228,6 +232,10 @@ class Scheduler:
         if not items:
             return
 
+        # 读取旧任务状态，用于检测终态过渡
+        old_task = self._task_repo.get(task_id)
+        old_status = old_task.status if old_task else None
+
         completed_count = sum(1 for item in items if item.status == "completed")
         failed_count = sum(1 for item in items if item.status == "failed")
         active_count = sum(
@@ -242,8 +250,14 @@ class Scheduler:
 
         if completed_count == len(items):
             self._task_repo.update_status(task_id, "completed")
+            # 触发 task 完成回调（仅当刚进入终态）
+            if old_status not in ("completed", "failed") and self._on_task_completed is not None:
+                self._on_task_completed(task_id, completed_count, len(items))
         elif active_count == 0 and failed_count > 0:
             self._task_repo.update_status(task_id, "failed")
+            # 触发 task 失败回调（仅当刚进入终态）
+            if old_status not in ("completed", "failed") and self._on_task_failed is not None:
+                self._on_task_failed(task_id, failed_count, len(items))
         elif active_count > 0:
             self._task_repo.update_status(task_id, "downloading")
 

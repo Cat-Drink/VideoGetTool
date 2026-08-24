@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import {
+  Bell,
   FolderOpen,
   Loader2,
   Cookie,
@@ -67,6 +68,12 @@ export default function SettingsPanel() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [concurrency, setConcurrency] = useState(3);
+  const [notificationEnabled, setNotificationEnabled] = useState(true);
+  const [soundEnabled, setSoundEnabled] = useState(true);
+  const [soundChoice, setSoundChoice] = useState("default");
+  const [soundVolume, setSoundVolume] = useState(0.5);
+  const [customSoundUrl, setCustomSoundUrl] = useState("");
+  const [savingNotify, setSavingNotify] = useState(false);
   const [appVersion, setAppVersion] = useState("v0.3.0");
   const [openSection, setOpenSection] = useState<string | null>("account");
   const { addToast } = useToastStore();
@@ -85,6 +92,11 @@ export default function SettingsPanel() {
       const cfg = await api.fetchConfig();
       setConfig(cfg);
       setConcurrency(cfg.concurrency);
+      setNotificationEnabled(cfg.notification_enabled);
+      setSoundEnabled(cfg.sound_enabled);
+      setSoundChoice(cfg.sound_choice);
+      setSoundVolume(cfg.sound_volume);
+      setCustomSoundUrl(cfg.custom_sound_url ?? "");
     } catch (e) {
       addToast("加载配置失败", "error");
     } finally {
@@ -120,6 +132,33 @@ export default function SettingsPanel() {
       } catch {
         addToast("保存目录失败", "error");
       }
+    }
+  };
+
+  const handleSaveNotification = async () => {
+    if (!config) return;
+    setSavingNotify(true);
+    try {
+      await api.updateConfig({
+        notification_enabled: notificationEnabled,
+        sound_enabled: soundEnabled,
+        sound_choice: soundChoice,
+        sound_volume: soundVolume,
+        custom_sound_url: customSoundUrl,
+      });
+      setConfig({
+        ...config,
+        notification_enabled: notificationEnabled,
+        sound_enabled: soundEnabled,
+        sound_choice: soundChoice,
+        sound_volume: soundVolume,
+        custom_sound_url: customSoundUrl,
+      });
+      addToast("通知设置已保存", "success");
+    } catch (e) {
+      addToast("保存通知设置失败", "error");
+    } finally {
+      setSavingNotify(false);
     }
   };
 
@@ -263,6 +302,129 @@ export default function SettingsPanel() {
                 </div>
                 <Button variant="secondary" size="sm" disabled>
                   <FolderOpen size={14} className="mr-1" /> 导出日志
+                </Button>
+              </div>
+            </div>
+          </SectionCard>
+
+          {/* ── 通知设置 ── */}
+          <SectionCard
+            icon={<Bell size={18} />}
+            title="通知设置"
+            description="任务完成弹窗与音效"
+            open={openSection === "notification"}
+            onToggle={() => toggle("notification")}
+          >
+            <div className="px-5 py-4 space-y-0">
+              <div className="flex items-center justify-between h-12">
+                <span className="text-sm text-text-primary">任务完成弹窗通知</span>
+                <label className="flex items-center gap-2 text-sm cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="w-4 h-4 accent-purple-500"
+                    checked={notificationEnabled}
+                    onChange={(e) => setNotificationEnabled(e.target.checked)}
+                  />
+                  <span className="text-xs text-text-secondary">{notificationEnabled ? "开启" : "关闭"}</span>
+                </label>
+              </div>
+              <div className="border-t border-border-light" />
+              <div className="flex items-center justify-between h-12">
+                <span className="text-sm text-text-primary">任务完成音效</span>
+                <label className="flex items-center gap-2 text-sm cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="w-4 h-4 accent-purple-500"
+                    checked={soundEnabled}
+                    onChange={(e) => setSoundEnabled(e.target.checked)}
+                  />
+                  <span className="text-xs text-text-secondary">{soundEnabled ? "开启" : "关闭"}</span>
+                </label>
+              </div>
+              <div className="border-t border-border-light" />
+              <div className="flex items-center justify-between h-12">
+                <span className="text-sm text-text-primary">音效选择</span>
+                <select
+                  className="text-sm text-text-secondary bg-bg-base border border-border-light rounded px-2 py-1"
+                  value={soundChoice}
+                  onChange={(e) => setSoundChoice(e.target.value)}
+                >
+                  <option value="default">默认音效</option>
+                  <option value="soft">轻柔</option>
+                  <option value="cheerful">活泼</option>
+                  <option value="custom">自定义 MP3</option>
+                  <option value="custom_wav">自定义 WAV（原生）</option>
+                </select>
+              </div>
+              {(soundChoice === "custom" || soundChoice === "custom_wav") && (
+                <div className="border-t border-border-light" />
+              )}
+              {(soundChoice === "custom" || soundChoice === "custom_wav") && (
+                <div className="flex items-center justify-between h-12">
+                  <span className="text-sm text-text-primary">自定义音效文件</span>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      className="text-sm w-48 bg-bg-base border border-border-light rounded px-2 py-1"
+                      placeholder={soundChoice === "custom_wav" ? "选择 WAV 文件..." : "选择 MP3 文件..."}
+                      value={customSoundUrl}
+                      onChange={(e) => setCustomSoundUrl(e.target.value)}
+                      readOnly
+                    />
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={async () => {
+                        const isWav = soundChoice === "custom_wav";
+                        try {
+                          const { open } = await import("@tauri-apps/plugin-dialog");
+                          const selected = await open({
+                            filters: isWav
+                              ? [{ name: "WAV 音效", extensions: ["wav"] }]
+                              : [{ name: "MP3 音效", extensions: ["mp3"] }],
+                            multiple: false,
+                          });
+                          if (selected) {
+                            setCustomSoundUrl(selected);
+                          }
+                        } catch (e) {
+                          // 非 Tauri 环境或对话框失败
+                          const path = window.prompt(isWav ? "请输入 WAV 文件路径：" : "请输入 MP3 文件路径：");
+                          if (path) setCustomSoundUrl(path);
+                        }
+                      }}
+                    >
+                      选择文件
+                    </Button>
+                  </div>
+                </div>
+              )}
+              <div className="border-t border-border-light" />
+              <div className="flex items-center justify-between h-12">
+                <span className="text-sm text-text-primary">音效音量</span>
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-text-secondary">0</span>
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    value={Math.round(soundVolume * 100)}
+                    onChange={(e) => setSoundVolume(Number(e.target.value) / 100)}
+                    className="w-36 h-2 accent-purple-500 cursor-pointer"
+                  />
+                  <span className="text-xs text-text-secondary">100</span>
+                  <span className="text-sm font-semibold text-purple-500 w-8 text-center">{Math.round(soundVolume * 100)}%</span>
+                </div>
+              </div>
+              <div className="border-t border-border-light" />
+              <div className="flex items-center justify-end h-12">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleSaveNotification}
+                  disabled={savingNotify}
+                >
+                  {savingNotify ? <Loader2 size={14} className="animate-spin" /> : "保存"}
                 </Button>
               </div>
             </div>

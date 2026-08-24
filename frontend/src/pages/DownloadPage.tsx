@@ -37,9 +37,10 @@ export default function DownloadPage() {
     loadTasks();
   }, [loadTasks]);
 
-  // WebSocket 进度更新
+  // WebSocket 消息处理 —— 仅负责进度/状态更新，通知与音效由全局 useNotificationService 处理
   const onWsMessage = useCallback(
     (msg: WsMessage) => {
+      // 逐项进度更新
       if (msg.type === "progress" && msg.updates) {
         for (const update of msg.updates) {
           applyProgressUpdate(update);
