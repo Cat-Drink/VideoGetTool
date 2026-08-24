@@ -77,20 +77,47 @@
   --shadow-overlay: 0 20px 40px rgba(0,0,0,0.6);
 }
 
-/* Base styles */
+/* Base styles.
+   无边框 + 系统原生阴影方案：
+   - tauri.conf.json 设置 transparent: false（不透明窗口，规避 Windows 渲染灰块 Bug）
+     与 shadow: false（关闭默认 DWM 阴影，交由 window-shadows-v2 插件处理）
+   - window-shadows-v2 通过 DwmExtendFrameIntoClientArea 精确绘制外阴影，
+     避免 DWM 默认阴影渗入 WebView 客户区（右侧/下侧黑边）
+   - #root 为透明容器，无边框无圆角，填满矩形窗口（系统原生阴影）
+   - AppShell 的 bg-bg-base 提供白色背景，内容完全延伸至窗口边缘，无视觉裁切 */
+html, body, #root {
+  height: 100%;
+}
+
+html {
+  background: transparent;
+}
+
 body {
   font-family: "Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI", "PingFang SC", sans-serif;
   font-size: var(--font-size-body);
   color: var(--color-text-primary);
-  background-color: var(--color-bg-base);
+  background-color: transparent;
   margin: 0;
   padding: 0;
+  box-sizing: border-box;
+  overflow: hidden;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   transition: background-color 0.2s ease, color 0.2s ease;
 }
 
-/* Scrollbar styles */
+/* 透明根容器：无边框无圆角，内容完全填满矩形窗口 */
+#root {
+  height: 100%;
+}
+
+/* 无边框纯自定义窗口：全局取消多余描边，容器靠底色与间距区分 */
+* {
+  border-color: transparent;
+}
+
+/* Scrollbar styles（无描边，仅圆角滑块） */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
@@ -98,12 +125,14 @@ body {
 
 ::-webkit-scrollbar-track {
   background: transparent;
+  border: none;
 }
 
 ::-webkit-scrollbar-thumb {
   background: var(--color-border-default);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-full);
   min-height: 32px;
+  border: none;
 }
 
 ::-webkit-scrollbar-thumb:hover {

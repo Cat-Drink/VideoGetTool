@@ -16,6 +16,8 @@ export interface ParsedResult {
   imageCount?: number;
   noWatermarkUrl?: string;
   imageUrls?: string[];
+  itemVideoUrls?: string[];
+  itemTypes?: string[];
   publishedAt?: string;
   error?: string;
 }
@@ -46,7 +48,12 @@ interface ParseStore {
   removeProfileItems: (indices: Set<number>) => void;
 
   /** 将勾选结果入队下载，返回实际入队的解析项 */
-  downloadSelected: (items: ParsedResult[], downloadDir?: string) => Promise<ParsedResult[]>;
+  downloadSelected: (
+    items: ParsedResult[],
+    downloadDir?: string,
+    /** 图文项内图片勾选索引映射：item index → 选中的图片索引数组 */
+    imageSelection?: Map<number, number[]>,
+  ) => Promise<ParsedResult[]>;
 }
 
 export const useParseStore = create<ParseStore>((set) => ({
@@ -64,21 +71,23 @@ parseUrls: async (urls: string[]) => {
 	      const rawResults = await api.parseUrls(urls);
 	      set((state) => {
 	        const offset = state.batchResults.length;
-	        const results: ParsedResult[] = rawResults.map((r: api.ParseResult, i: number) => ({
-	          index: offset + i,
-	          url: urls[i] || r.url || "",
-	          title: r.title || "",
-	          author: r.author || "",
-	          type: (r.type as ParsedResult["type"]) || "video",
-	          awemeId: r.aweme_id,
-	          coverUrl: r.cover_url,
-	          duration: r.duration,
-	          imageCount: r.image_count,
-	          noWatermarkUrl: r.no_watermark_url || undefined,
-	          imageUrls: r.image_urls || undefined,
-	          publishedAt: r.publish_time || undefined,
-	          error: r.error || undefined,
-	        }));
+            const results: ParsedResult[] = rawResults.map((r: api.ParseResult, i: number) => ({
+              index: offset + i,
+          url: urls[i] || r.url || "",
+          title: r.title || "",
+          author: r.author || "",
+          type: (r.type as ParsedResult["type"]) || "video",
+          awemeId: r.aweme_id,
+          coverUrl: r.cover_url,
+          duration: r.duration,
+          imageCount: r.image_count,
+          noWatermarkUrl: r.no_watermark_url || undefined,
+          imageUrls: r.image_urls || undefined,
+          itemVideoUrls: r.item_video_urls || undefined,
+          itemTypes: r.item_types || undefined,
+          publishedAt: r.publish_time || undefined,
+          error: r.error || undefined,
+        }));
 	        return {
 	          // 追加模式：按输入顺序排列表格，新结果追加在底部
 	          batchResults: [...state.batchResults, ...results],
@@ -109,20 +118,22 @@ fetchHome: async (url: string, maxItems = 50) => {
 	      const result = await api.fetchHome(url, maxItems);
 	      set((state) => {
 	        const offset = state.profileResults.length;
-	        const results: ParsedResult[] = (result.items || []).map((r: api.ParseResult, i: number) => ({
-	          index: offset + i,
-	          url: r.url || "",
-	          title: r.title || "",
-	          author: r.author || "",
-	          type: (r.type as ParsedResult["type"]) || "video",
-	          awemeId: r.aweme_id,
-	          coverUrl: r.cover_url,
-	          duration: r.duration,
-	          imageCount: r.image_count,
-	          noWatermarkUrl: r.no_watermark_url || undefined,
-	          imageUrls: r.image_urls || undefined,
-	          publishedAt: r.publish_time || undefined,
-	        }));
+            const results: ParsedResult[] = (result.items || []).map((r: api.ParseResult, i: number) => ({
+              index: offset + i,
+          url: r.url || "",
+          title: r.title || "",
+          author: r.author || "",
+          type: (r.type as ParsedResult["type"]) || "video",
+          awemeId: r.aweme_id,
+          coverUrl: r.cover_url,
+          duration: r.duration,
+          imageCount: r.image_count,
+          noWatermarkUrl: r.no_watermark_url || undefined,
+          imageUrls: r.image_urls || undefined,
+          itemVideoUrls: r.item_video_urls || undefined,
+          itemTypes: r.item_types || undefined,
+          publishedAt: r.publish_time || undefined,
+        }));
 	        return {
 	          // 追加模式：新结果追加在底部，按抓取顺序排列
 	          profileResults: [...state.profileResults, ...results],
@@ -147,21 +158,44 @@ fetchHome: async (url: string, maxItems = 50) => {
     }));
   },
 
-  downloadSelected: async (items: ParsedResult[], downloadDir?: string) => {
+  downloadSelected: async (items: ParsedResult[], downloadDir?: string, imageSelection?: Map<number, number[]>) => {
     // 仅入队可下载项（跳过 user_home 与解析失败项），返回实际入队的解析项
     const enqueued = items.filter((item) => item.type !== "user_home" && !item.error);
     const downloadItems = enqueued
-      .map((item) => ({
-        url: item.url,
-        title: item.title,
-        author: item.author,
-        type: item.type === "long_video" ? "long_video" : item.type === "image_set" ? "image_set" : "video",
-        aweme_id: item.awemeId,
-        cover_url: item.coverUrl,
-        image_count: item.imageCount,
-        no_watermark_url: item.noWatermarkUrl,
-        image_urls: item.imageUrls,
-      }));
+      .map((item) => {
+        // 如果该 item 有图片选择信息，仅提交选中的图片；否则提交全部
+        const selectedImgIndices = imageSelection?.get(item.index);
+        let filteredUrls = item.imageUrls;
+        let filteredVideoUrls = item.itemVideoUrls;
+        let filteredTypes = item.itemTypes;
+        if (selectedImgIndices && item.imageUrls && item.imageUrls.length > 0) {
+          const urls = item.imageUrls;
+          filteredUrls = selectedImgIndices
+            .map((idx) => urls[idx])
+            .filter((v): v is string => Boolean(v));
+          const videoUrls = item.itemVideoUrls;
+          filteredVideoUrls = videoUrls
+            ? selectedImgIndices.map((idx) => videoUrls[idx]).filter((v): v is string => Boolean(v))
+            : undefined;
+          const itemTypes = item.itemTypes;
+          filteredTypes = itemTypes
+            ? selectedImgIndices.map((idx) => itemTypes[idx]).filter((v): v is string => Boolean(v))
+            : undefined;
+        }
+        return {
+          url: item.url,
+          title: item.title,
+          author: item.author,
+          type: item.type,
+          aweme_id: item.awemeId,
+          cover_url: item.coverUrl,
+          image_count: item.imageCount,
+          no_watermark_url: item.noWatermarkUrl,
+          image_urls: filteredUrls,
+          item_video_urls: filteredVideoUrls,
+          item_types: filteredTypes,
+        };
+      });
 
     if (downloadItems.length === 0) return [];
 

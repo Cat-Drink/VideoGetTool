@@ -75,6 +75,8 @@ class Scheduler:
         http_client: httpx.AsyncClient | None = None,
         on_item_completed: Callable[[int], None] | None = None,
         on_item_failed: Callable[[int, str], None] | None = None,
+        on_task_completed: Callable[[int, int, int], None] | None = None,
+        on_task_failed: Callable[[int, int, int], None] | None = None,
         on_progress: Callable[[list[ProgressUpdate]], None] | None = None,
         video_parser: VideoParser | None = None,
         cookie_repository: CookieRepository | None = None,
@@ -98,6 +100,8 @@ class Scheduler:
         self._task_repo = TaskRepository(conn)
         self._on_item_completed = on_item_completed
         self._on_item_failed = on_item_failed
+        self._on_task_completed = on_task_completed
+        self._on_task_failed = on_task_failed
 
         # clamp 并发数到 [1, 10]
         self._max_concurrent = max(1, min(max_concurrent, MAX_CONCURRENT_LIMIT))
@@ -228,6 +232,10 @@ class Scheduler:
         if not items:
             return
 
+        # 读取旧任务状态，用于检测终态过渡
+        old_task = self._task_repo.get(task_id)
+        old_status = old_task.status if old_task else None
+
         completed_count = sum(1 for item in items if item.status == "completed")
         failed_count = sum(1 for item in items if item.status == "failed")
         active_count = sum(
@@ -242,8 +250,14 @@ class Scheduler:
 
         if completed_count == len(items):
             self._task_repo.update_status(task_id, "completed")
+            # 触发 task 完成回调（仅当刚进入终态）
+            if old_status not in ("completed", "failed") and self._on_task_completed is not None:
+                self._on_task_completed(task_id, completed_count, len(items))
         elif active_count == 0 and failed_count > 0:
             self._task_repo.update_status(task_id, "failed")
+            # 触发 task 失败回调（仅当刚进入终态）
+            if old_status not in ("completed", "failed") and self._on_task_failed is not None:
+                self._on_task_failed(task_id, failed_count, len(items))
         elif active_count > 0:
             self._task_repo.update_status(task_id, "downloading")
 
@@ -296,7 +310,7 @@ class Scheduler:
             return
         self._max_concurrent = new_value
         self._semaphore = asyncio.Semaphore(new_value)
-        self._downloader._semaphore = self._semaphore
+        self._downloader.set_semaphore(self._semaphore)
         logger.info("并发数调整为 %d", new_value)
 
     # === 暂停/恢复（设计文档 5.4 节）===
@@ -311,14 +325,23 @@ class Scheduler:
             task_item_id: 任务项 ID
         """
         task = self._tasks.get(task_item_id)
+        task_finished = False
         if task is not None and not task.done():
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await task
             self._tasks.pop(task_item_id, None)
-        self._item_repo.update_status(task_item_id, "paused")
-        # 同步父任务展示统计
+            task_finished = True
+
+        # 只在任务仍在 downloading/processing 状态时才写 paused，
+        # 避免在任务恰好完成时覆盖 "completed" 状态
         item = self._item_repo.get(task_item_id)
+        if item is not None and item.status in ("downloading", "processing"):
+            self._item_repo.update_status(task_item_id, "paused")
+        elif task_finished:
+            logger.info("暂停时 task_item id=%s 已完成，跳过状态覆盖", task_item_id)
+
+        # 同步父任务展示统计
         if item is not None:
             self._sync_task_stats(item.task_id)
         logger.info("已暂停 task_item id=%s", task_item_id)

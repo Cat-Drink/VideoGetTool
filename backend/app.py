@@ -113,6 +113,42 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         except Exception:
             log.exception("广播 item_failed 消息失败")
 
+    def _on_task_completed(task_id: int, completed_count: int, total_count: int) -> None:
+        """任务完成回调：整个 Task 的所有子项全部完成时触发 WebSocket 广播。"""
+        log.info("任务 %d 全部完成（%d/%d）", task_id, completed_count, total_count)
+        try:
+            asyncio.create_task(
+                ws_router.manager.broadcast(
+                    {
+                        "type": "task_completed",
+                        "task_id": task_id,
+                        "completed_count": completed_count,
+                        "total_count": total_count,
+                        "timestamp": datetime.now().isoformat(),
+                    }
+                )
+            )
+        except Exception:
+            log.exception("广播 task_completed 消息失败")
+
+    def _on_task_failed(task_id: int, failed_count: int, total_count: int) -> None:
+        """任务失败回调：整个 Task 无活跃项且有失败项时触发 WebSocket 广播。"""
+        log.warning("任务 %d 失败（%d/%d）", task_id, failed_count, total_count)
+        try:
+            asyncio.create_task(
+                ws_router.manager.broadcast(
+                    {
+                        "type": "task_failed",
+                        "task_id": task_id,
+                        "failed_count": failed_count,
+                        "total_count": total_count,
+                        "timestamp": datetime.now().isoformat(),
+                    }
+                )
+            )
+        except Exception:
+            log.exception("广播 task_failed 消息失败")
+
     def _on_progress(updates: list) -> None:
         """进度回调：通过 WebSocket 广播进度更新。"""
         if not updates:
@@ -129,7 +165,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                                 "total_bytes": update.total_bytes,
                                 "progress": (
                                     100.0
-                                    if update.status == "completed"
+                                    if update.status == "completed" or update.status == "processing"
                                     else round(
                                         (update.downloaded_bytes / max(update.total_bytes, 1))
                                         * 100,
@@ -152,6 +188,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         http_client=None,
         on_item_completed=_on_item_completed,
         on_item_failed=_on_item_failed,
+        on_task_completed=_on_task_completed,
+        on_task_failed=_on_task_failed,
         on_progress=_on_progress,
         video_parser=ctx.video_parser,
         cookie_repository=ctx.cookie_repo,
@@ -160,12 +198,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # 6. 启动调度器
     await ctx.scheduler.start()
     await ctx.scheduler.restore_pending_tasks()
+
+    # 7. 启动共享 WebSocket 进度轮询任务
+    await ws_router._start_shared_push()
     log.info("调度器已启动，断点续传已恢复")
 
     yield  # FastAPI 开始处理请求
 
     # 关闭阶段
     log.info("=== 关闭清理 ===")
+    await ws_router._stop_shared_push()
     await ctx.scheduler.stop()
     with contextlib.suppress(Exception):
         ctx.conn.close()
@@ -177,7 +219,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 # ===== FastAPI 应用 =====
 app = FastAPI(
     title="撷风拾影 Python Sidecar",
-    version="0.3.2",
+    version="0.3.3",
     lifespan=lifespan,
 )
 

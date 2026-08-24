@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import secrets
 import string
-import time
 
 from crawlers.exceptions import SignError
 
@@ -79,9 +78,6 @@ class VerifyFpGenerator:
             SignError: 生成失败。
         """
         try:
-            # 触发时间戳（确保每次调用基于不同时间点，增加随机性）
-            _ = time.time()
-
             # 8 位随机小写字母
             random_lower = _random_string(_RANDOM_LOWER_LEN, _LOWER_LETTERS)
 

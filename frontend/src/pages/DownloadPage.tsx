@@ -26,8 +26,7 @@ export default function DownloadPage() {
   const handleDeleteItem = async (itemId: number) => {
     try {
       await api.deleteTaskItem(itemId);
-      addToast("任务已删除", "success");
-      loadTasks();
+      await loadTasks();
     } catch (e) {
       addToast("删除失败", "error");
     }
@@ -38,9 +37,10 @@ export default function DownloadPage() {
     loadTasks();
   }, [loadTasks]);
 
-  // WebSocket 进度更新
+  // WebSocket 消息处理 —— 仅负责进度/状态更新，通知与音效由全局 useNotificationService 处理
   const onWsMessage = useCallback(
     (msg: WsMessage) => {
+      // 逐项进度更新
       if (msg.type === "progress" && msg.updates) {
         for (const update of msg.updates) {
           applyProgressUpdate(update);
@@ -93,34 +93,6 @@ export default function DownloadPage() {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Header */}
-      <div className="flex items-center justify-between px-6 h-14 border-b border-border-light">
-        <h1 className="text-display font-semibold text-text-primary">下载任务</h1>
-        <div className="flex items-center gap-2">
-          {!connected && (
-            <span className="text-xs text-error flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-error inline-block" />
-              服务未连接
-            </span>
-          )}
-          {connected && (
-            <span className="text-xs text-success flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-success inline-block" />
-              已连接
-            </span>
-          )}
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={loadTasks}
-            disabled={loading}
-            title="刷新"
-          >
-            <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
-          </Button>
-        </div>
-      </div>
-
       {/* Toolbar */}
       <div className="flex items-center gap-2 px-6 h-12 border-b border-border-light">
         <Button variant="ghost" size="sm" onClick={pauseAll}>全部暂停</Button>
@@ -144,14 +116,22 @@ export default function DownloadPage() {
           </Button>
         )}
         <div className="flex-1" />
-        <div className="relative w-48">
-          <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-disabled" />
-          <Input
-            placeholder="搜索任务..."
-            className="pl-8 h-7 text-xs"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3 text-xs text-text-secondary mr-2">
+            <span>总数 {stats.total}</span>
+            {stats.downloading > 0 && <span className="text-purple-500">下载中 {stats.downloading}</span>}
+            {stats.completed > 0 && <span className="text-success">已完成 {stats.completed}</span>}
+            {stats.failed > 0 && <span className="text-error">失败 {stats.failed}</span>}
+          </div>
+          <div className="relative w-48">
+            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-disabled" />
+            <Input
+              placeholder="搜索任务..."
+              className="pl-8 h-7 text-xs"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
         </div>
       </div>
 
@@ -204,14 +184,6 @@ export default function DownloadPage() {
             ))}
           </div>
         )}
-      </div>
-
-      {/* Bottom Status */}
-      <div className="flex items-center gap-4 px-6 h-8 border-t border-border-light text-xs text-text-secondary">
-        <span>总数 {stats.total}</span>
-        {stats.downloading > 0 && <span className="text-purple-500">下载中 {stats.downloading}</span>}
-        {stats.completed > 0 && <span className="text-success">已完成 {stats.completed}</span>}
-        {stats.failed > 0 && <span className="text-error">失败 {stats.failed}</span>}
       </div>
     </div>
   );

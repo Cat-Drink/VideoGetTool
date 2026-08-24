@@ -47,6 +47,13 @@ class ConnectionManager:
         for ws in dead:
             self.disconnect(ws)
 
+    def register_for_test(self, ws: object) -> None:
+        """注册测试用伪 WebSocket 连接（不经过 accept 握手）。
+
+        仅测试使用，避免测试直接访问私有属性 ``_connections``。
+        """
+        self._connections.append(ws)
+
     @property
     def active_count(self) -> int:
         return len(self._connections)
@@ -54,14 +61,30 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
+# 共享进度轮询任务：每 1 秒查一次数据库，广播给所有 WebSocket 连接
+# 替代原先每个连接各自轮询（N 个连接 = N 次/秒查询）的模式
+_push_stop_event: asyncio.Event | None = None
+
+
+async def _start_shared_push() -> None:
+    """启动共享进度轮询任务。"""
+    global _push_stop_event
+    _push_stop_event = asyncio.Event()
+    asyncio.create_task(_push_progress_updates(_push_stop_event))
+
+
+async def _stop_shared_push() -> None:
+    """停止共享进度轮询任务。"""
+    if _push_stop_event is not None:
+        _push_stop_event.set()
+
 
 @router.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
     """WebSocket 主端点。
 
-    前端连接后，服务端会持续推送进度更新和状态变化。
-    前端可发送控制消息：
-    - {"type": "ping"} → 服务端回复 pong
+    前端连接后，进度更新由调度器回调（_on_progress）和共享轮询任务
+    共同推送，每个连接不再独立轮询数据库。
     """
     await manager.connect(ws)
     logger.info("WebSocket 客户端已连接，当前连接数: %d", manager.active_count)
@@ -69,10 +92,6 @@ async def websocket_endpoint(ws: WebSocket):
     try:
         # 发送连接成功消息
         await ws.send_json({"type": "connected", "message": "WebSocket 已连接"})
-
-        # 启动进度推送任务（如果调度器存在）
-        stop_event = asyncio.Event()
-        progress_task = asyncio.create_task(_push_progress_updates(ws, stop_event))
 
         # 监听前端消息
         while True:
@@ -97,22 +116,22 @@ async def websocket_endpoint(ws: WebSocket):
         logger.error("WebSocket 错误: %s", e)
     finally:
         manager.disconnect(ws)
-        if "progress_task" in locals():
-            progress_task.cancel()
         logger.info("WebSocket 连接已清理，当前连接数: %d", manager.active_count)
 
 
-async def _push_progress_updates(ws: WebSocket, stop_event: asyncio.Event) -> None:
-    """定期推送进度更新。
+async def _push_progress_updates(stop_event: asyncio.Event) -> None:
+    """定期推送进度更新（共享任务，广播给所有连接）。
 
     每 1 秒推送一次 downloading/completed/failed 任务项的进度。
+    使用 manager.broadcast 替代原先每个连接独立轮询，避免 N 个连接
+    产生 N 次/秒的数据库查询。
     """
     while not stop_event.is_set():
         try:
             if ctx.task_item_repo is not None:
                 all_updates: list[dict] = []
 
-                for status in ("downloading", "completed", "failed"):
+                for status in ("downloading", "processing", "completed", "failed"):
                     items = ctx.task_item_repo.get_by_status(status)
                     for item in items:
                         if item.id is None:
@@ -136,7 +155,7 @@ async def _push_progress_updates(ws: WebSocket, stop_event: asyncio.Event) -> No
                         )
 
                 if all_updates:
-                    await ws.send_json(
+                    await manager.broadcast(
                         {
                             "type": "progress",
                             "updates": all_updates,
@@ -145,4 +164,5 @@ async def _push_progress_updates(ws: WebSocket, stop_event: asyncio.Event) -> No
                     )
         except Exception:
             pass
+
         await asyncio.sleep(1)

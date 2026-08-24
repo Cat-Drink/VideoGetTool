@@ -262,6 +262,26 @@ class TestExtractUrls:
         """play_addr 字段缺失 → None。"""
         assert VideoParser._extract_no_watermark_url({}) is None
 
+    def test_no_watermark_url_uses_first_url(self) -> None:
+        """play_addr.url_list 取第一个可用的视频直链。"""
+        detail = {
+            "video": {
+                "play_addr": {
+                    "url_list": [
+                        "https://x/playwm/a.mp4",
+                        "https://x/play/b.mp4",
+                    ]
+                }
+            }
+        }
+        # 取 url_list[0]，并按 playwm→play 替换
+        assert VideoParser._extract_no_watermark_url(detail) == "https://x/play/a.mp4"
+
+    def test_no_watermark_url_takes_first_url_no_replace(self) -> None:
+        """play_addr.url_list[0] 非 playwm 时原样返回。"""
+        detail = {"video": {"play_addr": {"url_list": ["https://x/play/a.mp4"]}}}
+        assert VideoParser._extract_no_watermark_url(detail) == "https://x/play/a.mp4"
+
     def test_extract_image_urls_empty(self) -> None:
         """images 为空列表 → 返回空列表。"""
         assert VideoParser._extract_image_urls({"images": []}) == []

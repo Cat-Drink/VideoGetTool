@@ -16,6 +16,8 @@
 
 from __future__ import annotations
 
+import urllib.parse
+
 from crawlers.exceptions import SignError
 from crawlers.signer.abogus import ABogusSigner
 from crawlers.signer.mstoken import MsTokenGenerator
@@ -107,15 +109,20 @@ class Signer:
             verify_fp = self._verify_fp_generator.generate()
 
             # 步骤 4：将 msToken 加入 params，构造用于签名的完整参数串
-            # 与参考实现一致：param_str = "&".join(f"{k}={v}" for k, v in params.items())
-            # 不做 URL 编码，按字典插入顺序拼接
+            # 使用 urllib.parse.urlencode 编码，与真实请求的 query string 一致
+            # 注意：X-Bogus 和 a_bogus 必须基于同一编码后的字符串计算，
+            # 否则当 msToken 含 base64 字符（+ / =）时签名输入不一致，
+            # 即使算法正确也可能被服务端拒绝（461 间歇性原因之一）
             sign_params = {**params, "msToken": ms_token}
-            param_str = "&".join(f"{k}={v}" for k, v in sign_params.items())
+            # 按字典插入顺序编码，与 a_bogus 的 _serialize_params 一致
+            encoded_str = urllib.parse.urlencode(sign_params)
 
-            # 步骤 5：X-Bogus（基于含 msToken 的 query string + UA）
-            x_bogus = self._xbogus_signer.sign(param_str, ua)
+            # 步骤 5：X-Bogus（基于编码后的 query string + UA）
+            x_bogus = self._xbogus_signer.sign(encoded_str, ua)
 
             # 步骤 6：a_bogus（基于参数字典 + UA）
+            # a_bogus 内部调用 _serialize_params 做 urlencode，
+            # 但为保证一致性，这里也传编码后的字符串
             a_bogus = self._abogus_signer.sign(sign_params, ua)
 
             # 步骤 7：组装返回

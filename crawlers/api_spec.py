@@ -70,45 +70,13 @@ DEFAULT_ACCEPT: str = "application/json, text/plain, */*"
 
 # === 6.2.4 响应字段路径常量 ===
 
-# ---- detail 接口字段路径（VideoParser 使用）----
-
-FIELD_DETAIL_AWEMME_ID: str = "aweme_detail.aweme_id"
-FIELD_DETAIL_DESC: str = "aweme_detail.desc"
-FIELD_DETAIL_CREATE_TIME: str = "aweme_detail.create_time"
-FIELD_DETAIL_DURATION: str = "aweme_detail.video.duration"
-FIELD_DETAIL_AWEME_TYPE: str = "aweme_detail.aweme_type"
-FIELD_DETAIL_AUTHOR_NICKNAME: str = "aweme_detail.author.nickname"
-FIELD_DETAIL_AUTHOR_SEC_UID: str = "aweme_detail.author.sec_uid"
-FIELD_DETAIL_PLAY_ADDR_URL_LIST: str = "aweme_detail.video.play_addr.url_list"
-FIELD_DETAIL_COVER_URL_LIST: str = "aweme_detail.video.cover.url_list"
-FIELD_DETAIL_IMAGES: str = "aweme_detail.images"
-FIELD_DETAIL_IMAGE_URL_LIST: str = "aweme_detail.images[*].url_list"
-FIELD_DETAIL_STATISTICS: str = "aweme_detail.statistics"
-FIELD_DETAIL_DIGG_COUNT: str = "aweme_detail.statistics.digg_count"
-FIELD_DETAIL_COMMENT_COUNT: str = "aweme_detail.statistics.comment_count"
-FIELD_DETAIL_SHARE_COUNT: str = "aweme_detail.statistics.share_count"
-FIELD_DETAIL_COLLECT_COUNT: str = "aweme_detail.statistics.collect_count"
-FIELD_DETAIL_TEXT_EXTRA: str = "aweme_detail.text_extra"
-FIELD_DETAIL_HASHTAG_NAME: str = "aweme_detail.text_extra[*].hashtag_name"
-
-# ---- post 接口字段路径（UserHomeCrawler 使用）----
-
-FIELD_POST_HAS_MORE: str = "has_more"
-FIELD_POST_MAX_CURSOR: str = "max_cursor"
-FIELD_POST_AWEME_LIST: str = "aweme_list"
-FIELD_POST_AWEME_ID: str = "aweme_list[*].aweme_id"
-FIELD_POST_DESC: str = "aweme_list[*].desc"
-FIELD_POST_CREATE_TIME: str = "aweme_list[*].create_time"
-FIELD_POST_DURATION: str = "aweme_list[*].video.duration"
-FIELD_POST_AUTHOR_NICKNAME: str = "aweme_list[*].author.nickname"
-FIELD_POST_AUTHOR_SEC_UID: str = "aweme_list[*].author.sec_uid"
-FIELD_POST_COVER_URL_LIST: str = "aweme_list[*].video.cover.url_list"
-FIELD_POST_IMAGES: str = "aweme_list[*].images"
+# 注意：FIELD_DETAIL_* 和 FIELD_POST_* 系列常量曾作为字段路径映射定义，
+# 但实际提取逻辑已直接硬编码在 video_parser.py 和 user_home_crawler.py 中，
+# 这些常量零引用。如需统一字段路径管理，请恢复本段并替换各模块的硬编码路径。
 
 
 # === 6.2.5 验证 HTML 特征常量 ===
 
-# 滑动验证 HTML 特征字符串元组，响应文本含任一即判定为验证页。
-# 注意：HttpClient 内部已用更精确的 VERIFY_HTML_MARKERS 做一次拦截，
-# 此常量作为业务层的二次校验与文档化保留。
-VERIFY_HTML_MARKERS: tuple[str, ...] = ("slider", "verify", "captcha")
+# 滑动验证 HTML 特征字符串元组。
+# HttpClient 内部已用同名的 VERIFY_HTML_MARKERS 做拦截（http_client.py:50），
+# 本模块的版本是遗留副本，不再使用。如需统一，请同步两处。

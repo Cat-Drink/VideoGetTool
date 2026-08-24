@@ -80,17 +80,17 @@ class TestInitDb:
         assert row[0] == 1
 
     def test_default_configs_inserted(self, memory_db: sqlite3.Connection) -> None:
-        """config 表应含 6 条默认配置，键值与 DEFAULT_CONFIGS 一致。"""
+        """config 表应含 10 条默认配置，键值与 DEFAULT_CONFIGS 一致。"""
         rows = memory_db.execute("SELECT key, value FROM config ORDER BY key").fetchall()
         result = {row["key"]: row["value"] for row in rows}
         assert result == config.DEFAULT_CONFIGS
-        assert len(result) == 6
+        assert len(result) == 11
 
     def test_init_db_idempotent(self, memory_db: sqlite3.Connection) -> None:
-        """连续两次 init_db 不报错，config 表仍 6 条。"""
+        """连续两次 init_db 不报错，config 表仍 10 条。"""
         database.init_db(memory_db)  # 第二次调用
         rows = memory_db.execute("SELECT COUNT(*) AS cnt FROM config").fetchone()
-        assert rows["cnt"] == 6
+        assert rows["cnt"] == 11
 
     def test_cascade_delete(
         self,
@@ -144,7 +144,7 @@ class TestInitDb:
         try:
             # 能查询 config 表
             rows = conn.execute("SELECT COUNT(*) AS cnt FROM config").fetchone()
-            assert rows["cnt"] == 6
+            assert rows["cnt"] == 11
         finally:
             conn.close()
 
@@ -224,7 +224,7 @@ class TestInitDefaultDb:
         try:
             # 验证连接可用
             rows = conn.execute("SELECT COUNT(*) AS cnt FROM config").fetchone()
-            assert rows["cnt"] == 6
+            assert rows["cnt"] == 11
             # 验证 schema_version 含当前版本记录（v0.1.7：版本=2）
             row = conn.execute(
                 "SELECT version FROM schema_version WHERE version = ?",

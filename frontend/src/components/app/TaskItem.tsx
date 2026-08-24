@@ -1,4 +1,5 @@
 import { Play, Pause, RotateCw, FolderOpen, RefreshCw, Trash2 } from "lucide-react";
+import { openInFolder } from "../../lib/tauri";
 import { Progress } from "../ui/progress";
 import { Badge } from "../ui/badge";
 import type { DisplayTask } from "../../store/taskStore";
@@ -15,6 +16,7 @@ const statusConfig = {
   pending: { label: "等待中", progressVariant: "default" as const, actionIcon: null },
   downloading: { label: "下载中", progressVariant: "default" as const, actionIcon: <Pause size={14} /> },
   paused: { label: "已暂停", progressVariant: "paused" as const, actionIcon: <Play size={14} /> },
+  processing: { label: "处理中", progressVariant: "default" as const, actionIcon: null },
   completed: { label: "完成", progressVariant: "success" as const, actionIcon: <FolderOpen size={14} /> },
   failed: { label: "失败", progressVariant: "error" as const, actionIcon: <RefreshCw size={14} /> },
 };
@@ -67,7 +69,7 @@ export function TaskItem({ task, onPause, onResume, onRetry, onDelete }: TaskIte
           variant={config.progressVariant}
         />
         <div className="text-xs text-text-secondary text-center mt-0.5">
-          {task.status === "completed" ? "完成" : task.status === "failed" ? "失败" : task.status === "paused" ? "已暂停" : `${Math.round(task.progress)}%`}
+          {task.status === "completed" ? "完成" : task.status === "failed" ? "失败" : task.status === "paused" ? "已暂停" : task.status === "processing" ? "处理中" : `${Math.round(task.progress)}%`}
         </div>
       </div>
 
@@ -81,6 +83,16 @@ export function TaskItem({ task, onPause, onResume, onRetry, onDelete }: TaskIte
             title={task.status === "downloading" ? "暂停" : "恢复"}
           >
             {config.actionIcon}
+          </button>
+        )}
+        {/* 打开所在文件夹（仅已完成显示） */}
+        {task.status === "completed" && task.localPath && (
+          <button
+            onClick={() => openInFolder(task.localPath!)}
+            className="w-8 h-8 flex items-center justify-center rounded-sm text-text-secondary hover:bg-bg-hover hover:text-text-primary transition-colors"
+            title="打开所在文件夹"
+          >
+            <FolderOpen size={14} />
           </button>
         )}
         {/* 重新执行 */}

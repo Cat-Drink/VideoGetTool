@@ -17,9 +17,13 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = ["tray-icon", "image-ico"] }
 tauri-plugin-window-state = "2"
+window-shadows-v2 = "0.1"
+tauri-plugin-notification = "2"
+tauri-plugin-single-instance = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-shell = "2"
+tauri-plugin-websocket = "2"
 open = "5"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
