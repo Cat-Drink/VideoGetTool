@@ -223,6 +223,51 @@ export default function DownloadPage() {
       }
     };
   }, [connected, loadTasks]);
+  // ═══ REST 轮询兜底通知：当 WS 断连时，通过轮询数据检测完成/失败并触发通知 ═══
+  // 与 WS 消息路径共享 notifiedItemRef 去重，避免重复通知
+  const prevItemsRef = useRef<Map<number, string>>(new Map());
+
+  useEffect(() => {
+    const isTerminal = (s: string) => s === "completed" || s === "failed";
+    const prevStatuses = prevItemsRef.current;
+
+    for (const item of items) {
+      const prevStatus = prevStatuses.get(item.id);
+
+      // 只在从非终止态 → 终止态时触发通知（不在首次加载时触发已完成项）
+      if (prevStatus && !isTerminal(prevStatus) && isTerminal(item.status)) {
+        if (notifiedItemRef.current.has(item.id)) continue;
+        notifiedItemRef.current.add(item.id);
+
+        // 异步触发通知，避免阻塞渲染
+        (async () => {
+          const settings = await loadNotifySettings();
+          const isCompleted = item.status === "completed";
+
+          if (settings.notificationEnabled) {
+            sendSystemNotification(
+              isCompleted ? "下载完成" : "下载失败",
+              isCompleted ? `《${item.title}》下载完成` : (item.failReason || "下载失败"),
+            );
+          }
+          addToast(
+            isCompleted ? `《${item.title}》下载完成` : `下载失败: ${item.failReason || "未知错误"}`,
+            isCompleted ? "success" : "error",
+          );
+          if (settings.soundEnabled) {
+            playNotificationSound(isCompleted ? "completed" : "failed", {
+              choice: settings.soundChoice,
+              volume: settings.soundVolume,
+              customUrl: settings.soundChoice === "custom" ? (settings.customSoundUrl || undefined) : undefined,
+              customWavPath: settings.soundChoice === "custom_wav" ? (settings.customSoundUrl || undefined) : undefined,
+            });
+          }
+        })();
+      }
+    }
+
+    prevItemsRef.current = new Map(items.map(i => [i.id, i.status]));
+  }, [items]);
 
   // 过滤
   const filtered = items.filter(

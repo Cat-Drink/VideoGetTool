@@ -69,12 +69,30 @@ fn play_wav_sound(_path: String) {
     // 非 Windows 平台忽略
 }
 
+/// WebSocket 前端诊断日志（写入 AppData/logs/ws_diag.log）
+///
+/// 前端在 WS 连接生命周期的关键节点调用此命令，将运行环境检测、
+/// 连接尝试、成功/失败原因写入可检查的诊断文件。
+#[tauri::command]
+fn log_ws_diag(app: tauri::AppHandle, msg: String) {
+    if let Ok(dir) = app.path().app_data_dir() {
+        let log_path = dir.join("ws_diag.log");
+        if let Ok(mut file) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_path)
+        {
+            use std::io::Write;
+            let _ = writeln!(file, "{}", msg);
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            // 用户点击通知（或从第二个实例启动）时，激活并显示主窗口
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.show();
                 let _ = window.set_focus();
@@ -94,29 +112,21 @@ pub fn run() {
             )
             .build())
         .on_window_event(|window, event| {
-            // 拦截窗口关闭事件：阻止默认关闭行为，改为隐藏到系统托盘
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
                 let _ = window.hide();
             }
         })
         .setup(|app| {
-            // 方案一：tauri-plugin-shadows（window-shadows-v2）绘制原生阴影
-            // 关闭 tauri.conf.json 的默认原生阴影（shadow: false），改由该插件
-            // 通过 DwmExtendFrameIntoClientArea 精确扩展非客户区绘制外阴影，
-            // 避免 DWM 默认阴影渗入 WebView 客户区（右侧/下侧黑边）的问题。
             #[cfg(any(target_os = "windows", target_os = "macos"))]
             window_shadows_v2::set_shadows(app, true);
 
-            // 构建托盘菜单
             let show_item = MenuItem::with_id(app, "show", "显示窗口", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
 
-            // 构建托盘图标（使用项目图标，避免默认透明图标）
             let icon = include_image!("icons/icon.ico");
 
-            // 构建托盘图标（使用唯一 ID 避免重复）
             let _tray = TrayIconBuilder::new()
                 .icon(icon)
                 .menu(&menu)
@@ -137,14 +147,12 @@ pub fn run() {
                 })
                 .build(app)?;
 
-            // 启动 Python sidecar
             let sidecar_command = app.shell().sidecar("backend-sidecar")
                 .map_err(|e| e.to_string())?;
             let (mut _rx, child) = sidecar_command
                 .args(&["--host", "127.0.0.1", "--port", "18989"])
                 .spawn()
                 .map_err(|e| e.to_string())?;
-            // 句柄存入托管状态，保持 stdin 管道存活并随应用生命周期退出
             app.manage(SidecarChild(Mutex::new(Some(child))));
 
             Ok(())
@@ -153,11 +161,11 @@ pub fn run() {
             open_link,
             get_app_version,
             play_wav_sound,
+            log_ws_diag,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| {
-            // 退出时终止 sidecar（kill 引导进程 + 关闭 stdin 管道，后端随 EOF 退出）
             if matches!(event, tauri::RunEvent::ExitRequested { .. }) {
                 if let Some(state) = app.try_state::<SidecarChild>() {
                     if let Some(child) = state.0.lock().unwrap().take() {
