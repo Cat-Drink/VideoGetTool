@@ -55,7 +55,7 @@ class TestDefaultConfigs:
             "sound_enabled",
             "sound_choice",
             "sound_volume",
-        "custom_sound_url",
+            "custom_sound_url",
         }
         assert set(config.DEFAULT_CONFIGS.keys()) == expected_keys
 

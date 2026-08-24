@@ -94,8 +94,7 @@ class VideoInfo:
         """
         if self.item_video_urls and len(self.item_video_urls) == len(self.image_urls):
             return [
-                v if v else i
-                for v, i in zip(self.item_video_urls, self.image_urls, strict=True)
+                v if v else i for v, i in zip(self.item_video_urls, self.image_urls, strict=True)
             ]
         return list(self.image_urls)
 
@@ -222,6 +221,7 @@ class VideoParser:
             url = url.replace("playwm", "play")
         logger.debug("获取到视频直链: %s", url[:200])
         return url
+
     @staticmethod
     def _extract_image_urls(detail: dict) -> list[str]:
         """提取图集原图直链列表。
@@ -295,6 +295,7 @@ class VideoParser:
                 else:
                     urls.append("")
         return urls
+
     @staticmethod
     def _extract_item_types(detail: dict) -> list[str]:
         """从 ``images`` 数组逐项判断媒体类型。

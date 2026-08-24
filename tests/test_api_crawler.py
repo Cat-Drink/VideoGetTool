@@ -116,9 +116,7 @@ class TestParseRoute:
 class TestFetchHomeRoute:
     """主页抓取路由测试。"""
 
-    def test_fetch_home_maps_items_and_rejects_non_home_url(
-        self, api_client: TestClient
-    ) -> None:
+    def test_fetch_home_maps_items_and_rejects_non_home_url(self, api_client: TestClient) -> None:
         """主页作品映射正确，并拒绝非主页 URL。"""
         from backend.state import ctx
 

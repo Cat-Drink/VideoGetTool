@@ -185,8 +185,7 @@ async def start_download(req: StartDownloadRequest):
                 # 仅在有视频直链的项上使用视频 URL，其余保留图片 URL
                 if item_video_urls and len(item_video_urls) == len(image_urls):
                     download_urls = [
-                        v if v else i
-                        for v, i in zip(item_video_urls, image_urls, strict=True)
+                        v if v else i for v, i in zip(item_video_urls, image_urls, strict=True)
                     ]
                 else:
                     download_urls = image_urls

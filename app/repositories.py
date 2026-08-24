@@ -197,9 +197,7 @@ class TaskRepository:
 
     def get_all(self) -> list[Task]:
         """查询所有任务，按 created_at 排序。"""
-        rows = self._conn.execute(
-            "SELECT * FROM tasks ORDER BY created_at"
-        ).fetchall()
+        rows = self._conn.execute("SELECT * FROM tasks ORDER BY created_at").fetchall()
         return [_row_to_task(row) for row in rows]
 
 

@@ -182,8 +182,11 @@ class Downloader:
         return Path(task.download_dir)
 
     def _get_final_path(
-        self, task_item: TaskItem, url: str,
-        index: int | None = None, item_subtype: str | None = None,
+        self,
+        task_item: TaskItem,
+        url: str,
+        index: int | None = None,
+        item_subtype: str | None = None,
     ) -> Path:
         """推导最终文件路径。
 
