@@ -27,6 +27,13 @@ DEFAULT_CHUNK_SIZE: int = 1024 * 1024  # 1MB，单文件分块大小
 DEFAULT_RETRY_COUNT: int = 3  # 失败重试次数，固定不可改
 DEFAULT_METADATA_FORMAT: str = "json"  # 元数据保存格式
 
+# 任务完成通知配置默认值
+DEFAULT_NOTIFICATION_ENABLED: bool = True  # 任务完成弹窗通知，默认开启
+DEFAULT_SOUND_ENABLED: bool = True  # 任务完成音效，默认开启
+DEFAULT_SOUND_CHOICE: str = "default"  # 音效选择：default / soft / cheerful
+DEFAULT_SOUND_VOLUME: float = 0.5  # 音效音量 0.0-1.0
+DEFAULT_CUSTOM_SOUND_URL: str = ""  # 自定义 MP3 音效文件路径
+
 # 聚合默认配置，键为 config 表的 key，值均为字符串
 DEFAULT_CONFIGS: dict[str, str] = {
     "download_dir": str(DEFAULT_DOWNLOAD_DIR),
@@ -35,6 +42,11 @@ DEFAULT_CONFIGS: dict[str, str] = {
     "retry_count": str(DEFAULT_RETRY_COUNT),
     "metadata_format": DEFAULT_METADATA_FORMAT,
     "onboarding_done": "false",
+    "notification_enabled": "true" if DEFAULT_NOTIFICATION_ENABLED else "false",
+    "sound_enabled": "true" if DEFAULT_SOUND_ENABLED else "false",
+    "sound_choice": DEFAULT_SOUND_CHOICE,
+    "sound_volume": str(DEFAULT_SOUND_VOLUME),
+    "custom_sound_url": DEFAULT_CUSTOM_SOUND_URL,
 }
 
 

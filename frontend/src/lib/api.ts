@@ -56,6 +56,16 @@ export interface ConfigResponse {
   chunk_size: number;
   metadata_format: string;
   onboarding_done: boolean;
+  /** 通知总开关 */
+  notification_enabled: boolean;
+  /** 音效开关 */
+  sound_enabled: boolean;
+  /** 音效选择（如 "default"/"ding"/"bell"） */
+  sound_choice: string;
+  /** 音量，范围 0.0-1.0 */
+  sound_volume: number;
+  /** 自定义 MP3 音效文件路径 */
+  custom_sound_url: string;
 }
 
 export interface CookieResponse {
