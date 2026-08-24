@@ -17,7 +17,6 @@
 from __future__ import annotations
 
 import urllib.parse
-from collections.abc import Mapping
 
 from crawlers.exceptions import SignError
 from crawlers.signer.abogus import ABogusSigner

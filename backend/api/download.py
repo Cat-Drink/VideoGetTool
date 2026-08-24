@@ -210,7 +210,11 @@ async def start_download(req: StartDownloadRequest):
                     if item_type == "image_set" and image_urls
                     else item_data.get("image_count")
                 ),
-                item_types=json.dumps(item_types, ensure_ascii=False) if item_type == "image_set" and item_types else "",
+                item_types=(
+                    json.dumps(item_types, ensure_ascii=False)
+                    if item_type == "image_set" and item_types
+                    else ""
+                ),
                 status=TaskItemStatus.PENDING.value,
             )
             item_id = ctx.task_item_repo.create(task_item)

@@ -181,7 +181,10 @@ class Downloader:
             raise ValueError(f"task_id={task_item.task_id} 的 download_dir 为空或 task 不存在")
         return Path(task.download_dir)
 
-    def _get_final_path(self, task_item: TaskItem, url: str, index: int | None = None, item_subtype: str | None = None) -> Path:
+    def _get_final_path(
+        self, task_item: TaskItem, url: str,
+        index: int | None = None, item_subtype: str | None = None,
+    ) -> Path:
         """推导最终文件路径。
 
         命名规范（问题归档 #4）：采用"作者名 + 源媒体标题"截取前若干字

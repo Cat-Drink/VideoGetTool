@@ -93,7 +93,10 @@ class VideoInfo:
             与 ``images`` 数组长度一致的下载 URL 列表。
         """
         if self.item_video_urls and len(self.item_video_urls) == len(self.image_urls):
-            return [v if v else i for v, i in zip(self.item_video_urls, self.image_urls)]
+            return [
+                v if v else i
+                for v, i in zip(self.item_video_urls, self.image_urls, strict=True)
+            ]
         return list(self.image_urls)
 
 

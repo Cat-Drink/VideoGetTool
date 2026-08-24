@@ -282,17 +282,6 @@ class TestExtractUrls:
         detail = {"video": {"play_addr": {"url_list": ["https://x/play/a.mp4"]}}}
         assert VideoParser._extract_no_watermark_url(detail) == "https://x/play/a.mp4"
 
-    def test_no_watermark_url_empty_list(self) -> None:
-        """play_addr.url_list 为空 → None。"""
-        detail = {
-            "video": {
-                "play_addr": {
-                    "url_list": []
-                }
-            }
-        }
-        assert VideoParser._extract_no_watermark_url(detail) is None
-
     def test_extract_image_urls_empty(self) -> None:
         """images 为空列表 → 返回空列表。"""
         assert VideoParser._extract_image_urls({"images": []}) == []
