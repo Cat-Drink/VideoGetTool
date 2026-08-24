@@ -83,6 +83,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_websocket::init())
         .plugin(tauri_plugin_window_state::Builder::new()
             .with_state_flags(
                 StateFlags::SIZE

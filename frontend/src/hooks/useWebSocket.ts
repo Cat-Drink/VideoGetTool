@@ -1,4 +1,9 @@
-/** WebSocket 连接管理 hook */
+/** WebSocket 连接管理 hook
+ *
+ * 使用 tauri-plugin-websocket（官方 Rust 侧 WebSocket 插件）建立连接，
+ * 绕过 Tauri 打包版 WebView2 对 ws:// 的混合内容限制。
+ * 非 Tauri 环境（浏览器开发模式）自动回退到原生 WebSocket。
+ */
 
 import { useEffect, useRef, useCallback, useState } from "react";
 
@@ -27,59 +32,97 @@ export interface WsMessage {
 }
 
 export function useWebSocket(onMessage?: (msg: WsMessage) => void) {
-  const wsRef = useRef<WebSocket | null>(null);
+  const wsRef = useRef<any>(null);
   const [connected, setConnected] = useState(false);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const removeListenerRef = useRef<(() => void) | null>(null);
+  const isConnectingRef = useRef(false);
 
-  const connect = useCallback(() => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) return;
+  const connect = useCallback(async () => {
+    // 防止并发重连
+    if (isConnectingRef.current) return;
+    isConnectingRef.current = true;
 
     try {
-      const ws = new WebSocket(WS_URL);
-      wsRef.current = ws;
+      // 清理旧连接
+      if (wsRef.current) {
+        try { removeListenerRef.current?.(); } catch { /* ignore */ }
+        try { await wsRef.current.disconnect?.(); } catch { /* ignore */ }
+        try { wsRef.current.close?.(); } catch { /* ignore */ }
+        wsRef.current = null;
+      }
 
-      ws.onopen = () => {
+      // 尝试使用 Tauri 插件（Rust 侧 WebSocket）
+      let useTauriPlugin = false;
+      try {
+        const mod = await import("@tauri-apps/plugin-websocket");
+        const TauriWebSocket = mod.default;
+        const ws = await TauriWebSocket.connect(WS_URL);
+        wsRef.current = ws;
+        useTauriPlugin = true;
         setConnected(true);
-        console.log("[WS] 已连接");
-      };
 
-      ws.onmessage = (event) => {
-        try {
-          const msg = JSON.parse(event.data) as WsMessage;
-          onMessage?.(msg);
-        } catch {
-          // ignore parse errors
+        const remove = ws.addListener((msg: any) => {
+          if (msg.type === "Text") {
+            try {
+              const parsed = JSON.parse(msg.data) as WsMessage;
+              onMessage?.(parsed);
+            } catch { /* JSON parse error, ignore */ }
+          } else if (msg.type === "Close") {
+            // 服务端关闭连接 → 重连
+            setConnected(false);
+            reconnectTimer.current = setTimeout(connect, 3000);
+          }
+        });
+        removeListenerRef.current = remove;
+      } catch {
+        // Tauri 插件不可用（非 Tauri 环境或插件未初始化）→ 回退原生 WebSocket
+        if (!useTauriPlugin) {
+          const ws = new window.WebSocket(WS_URL);
+          wsRef.current = ws;
+
+          ws.onopen = () => {
+            setConnected(true);
+          };
+
+          ws.onmessage = (event: MessageEvent) => {
+            try {
+              const parsed = JSON.parse(event.data) as WsMessage;
+              onMessage?.(parsed);
+            } catch { /* JSON parse error, ignore */ }
+          };
+
+          ws.onclose = () => {
+            setConnected(false);
+            reconnectTimer.current = setTimeout(connect, 3000);
+          };
+
+          ws.onerror = () => {
+            ws.close();
+          };
         }
-      };
-
-      ws.onclose = () => {
-        setConnected(false);
-        console.log("[WS] 连接断开，3秒后重连");
-        reconnectTimer.current = setTimeout(connect, 3000);
-      };
-
-      ws.onerror = () => {
-        ws.close();
-      };
-    } catch {
-      // connection error, retry
+      }
+    } catch (e) {
+      console.warn("[WS] 连接失败，3秒后重试", e);
+      setConnected(false);
       reconnectTimer.current = setTimeout(connect, 3000);
+    } finally {
+      isConnectingRef.current = false;
     }
   }, [onMessage]);
-
-  const send = useCallback((data: object) => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify(data));
-    }
-  }, []);
 
   useEffect(() => {
     connect();
     return () => {
       clearTimeout(reconnectTimer.current ?? undefined);
-      wsRef.current?.close();
+      if (wsRef.current) {
+        try { removeListenerRef.current?.(); } catch { /* ignore */ }
+        try { wsRef.current.disconnect?.(); } catch { /* ignore */ }
+        try { wsRef.current.close?.(); } catch { /* ignore */ }
+      }
+      isConnectingRef.current = false;
     };
   }, [connect]);
 
-  return { connected, send };
+  return { connected };
 }
