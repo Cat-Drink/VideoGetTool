@@ -10,39 +10,6 @@ import { useUiInputStore } from "../store/uiInputStore";
 import * as api from "../lib/api";
 import { useNavigate } from "react-router-dom";
 import type { WsMessage } from "../hooks/useWebSocket";
-import { playNotificationSound } from "../lib/sound";
-import { sendSystemNotification } from "../lib/notify";
-
-/** 从配置加载的通知设置缓存 */
-interface NotifySettings {
-  notificationEnabled: boolean;
-  soundEnabled: boolean;
-  soundChoice: "default" | "soft" | "cheerful" | "custom" | "custom_wav";
-  soundVolume: number;
-  customSoundUrl: string;
-}
-
-/** 读取通知配置（失败时返回默认值） */
-async function loadNotifySettings(): Promise<NotifySettings> {
-  try {
-    const cfg = await api.fetchConfig();
-    return {
-      notificationEnabled: cfg.notification_enabled,
-      soundEnabled: cfg.sound_enabled,
-      soundChoice: cfg.sound_choice as NotifySettings["soundChoice"],
-      soundVolume: cfg.sound_volume,
-      customSoundUrl: cfg.custom_sound_url ?? "",
-    };
-  } catch {
-    return {
-      notificationEnabled: true,
-      soundEnabled: true,
-      soundChoice: "default",
-      soundVolume: 0.5,
-      customSoundUrl: "",
-    };
-  }
-}
 
 export default function DownloadPage() {
   const navigate = useNavigate();
@@ -55,9 +22,6 @@ export default function DownloadPage() {
   } = useTaskStore();
   const { addToast } = useToastStore();
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const prevStatusRef = useRef<Map<number, string>>(new Map());
-  const notifiedTaskRef = useRef<Set<number>>(new Set());
-  const notifiedItemRef = useRef<Set<number>>(new Set());
 
   const handleDeleteItem = async (itemId: number) => {
     try {
@@ -73,129 +37,17 @@ export default function DownloadPage() {
     loadTasks();
   }, [loadTasks]);
 
-  // WebSocket 消息处理
+  // WebSocket 消息处理 —— 仅负责进度/状态更新，通知与音效由全局 useNotificationService 处理
   const onWsMessage = useCallback(
-    async (msg: WsMessage) => {
-      // 处理 Task 级完成/失败事件（聚合通知）
-      if (msg.type === "task_completed") {
-        const task_id = msg.task_id!;
-        const completed_count = msg.completed_count!;
-        const total_count = msg.total_count!;
-        // 避免重复通知同一个 Task
-        if (notifiedTaskRef.current.has(task_id)) return;
-        notifiedTaskRef.current.add(task_id);
-
-        const settings = await loadNotifySettings();
-
-        // 系统通知
-        if (settings.notificationEnabled) {
-          sendSystemNotification(
-            "下载任务完成",
-            `任务 #${task_id}：${completed_count}/${total_count} 项下载成功`,
-          );
-        }
-        // Toast 通知
-        addToast(`任务 #${task_id} 全部完成（${completed_count}/${total_count}）`, "success");
-        // 音效
-        if (settings.soundEnabled) {
-          playNotificationSound("completed", {
-            choice: settings.soundChoice,
-            volume: settings.soundVolume,
-            customUrl: settings.soundChoice === "custom" ? (settings.customSoundUrl || undefined) : undefined,
-            customWavPath: settings.soundChoice === "custom_wav" ? (settings.customSoundUrl || undefined) : undefined,
-          });
-        }
-        return;
-      }
-
-      if (msg.type === "task_failed") {
-        const task_id = msg.task_id!;
-        const failed_count = msg.failed_count!;
-        const total_count = msg.total_count!;
-        if (notifiedTaskRef.current.has(task_id)) return;
-        notifiedTaskRef.current.add(task_id);
-
-        const settings = await loadNotifySettings();
-
-        if (settings.notificationEnabled) {
-          sendSystemNotification(
-            "下载任务失败",
-            `任务 #${task_id}：${failed_count}/${total_count} 项下载失败`,
-          );
-        }
-        addToast(`任务 #${task_id} 下载失败（${failed_count}/${total_count}）`, "error");
-        if (settings.soundEnabled) {
-          playNotificationSound("failed", {
-            choice: settings.soundChoice,
-            volume: settings.soundVolume,
-            customUrl: settings.soundChoice === "custom" ? (settings.customSoundUrl || undefined) : undefined,
-            customWavPath: settings.soundChoice === "custom_wav" ? (settings.customSoundUrl || undefined) : undefined,
-          });
-        }
-        return;
-      }
-
-      // 处理单项完成事件（item_completed / item_failed）
-      if (msg.type === "item_completed" || msg.type === "item_failed") {
-        const itemId = msg.task_item_id!;
-        if (notifiedItemRef.current.has(itemId)) return;
-        notifiedItemRef.current.add(itemId);
-
-        const isCompleted = msg.type === "item_completed";
-        const settings = await loadNotifySettings();
-
-        if (settings.notificationEnabled) {
-          sendSystemNotification(
-            isCompleted ? "下载完成" : "下载失败",
-            isCompleted ? "一项下载任务已完成" : (msg.fail_reason || "一项下载任务失败"),
-          );
-        }
-        addToast(
-          isCompleted ? "一项下载任务已完成" : `下载失败: ${msg.fail_reason || "未知错误"}`,
-          isCompleted ? "success" : "error",
-        );
-        if (settings.soundEnabled) {
-          playNotificationSound(isCompleted ? "completed" : "failed", {
-            choice: settings.soundChoice,
-            volume: settings.soundVolume,
-            customUrl: settings.soundChoice === "custom" ? (settings.customSoundUrl || undefined) : undefined,
-            customWavPath: settings.soundChoice === "custom_wav" ? (settings.customSoundUrl || undefined) : undefined,
-          });
-        }
-        return;
-      }
-
-      // 处理逐项进度更新
+    (msg: WsMessage) => {
+      // 逐项进度更新
       if (msg.type === "progress" && msg.updates) {
         for (const update of msg.updates) {
-          const prevStatus = prevStatusRef.current.get(update.task_item_id);
-          const newStatus = update.status;
-          const isTerminal = (s: string) => s === "completed" || s === "failed";
-
-          const shouldNotifyItem =
-            // 情形1: prevStatus 存在且从非终止态变为终止态（常规进度转换）
-            (prevStatus && !isTerminal(prevStatus) && isTerminal(newStatus)) ||
-            // 情形2: prevStatus 不存在（首次出现），且 newStatus 是终止态，
-            // 且该 item 尚未被通知过（捕获快速下载/轮询首次更新场景）
-            (!prevStatus && isTerminal(newStatus) && !notifiedItemRef.current.has(update.task_item_id));
-
-          if (shouldNotifyItem) {
-            if (isTerminal(newStatus)) {
-              notifiedItemRef.current.add(update.task_item_id);
-            }
-            playNotificationSound(newStatus as "completed" | "failed");
-            addToast(
-              newStatus === "completed" ? "任务下载完成" : "任务下载失败",
-              newStatus === "completed" ? "success" : "error",
-            );
-          }
-
-          prevStatusRef.current.set(update.task_item_id, newStatus);
           applyProgressUpdate(update);
         }
       }
     },
-    [applyProgressUpdate, addToast],
+    [applyProgressUpdate],
   );
 
   const { connected } = useWebSocket(onWsMessage);
@@ -223,51 +75,6 @@ export default function DownloadPage() {
       }
     };
   }, [connected, loadTasks]);
-  // ═══ REST 轮询兜底通知：当 WS 断连时，通过轮询数据检测完成/失败并触发通知 ═══
-  // 与 WS 消息路径共享 notifiedItemRef 去重，避免重复通知
-  const prevItemsRef = useRef<Map<number, string>>(new Map());
-
-  useEffect(() => {
-    const isTerminal = (s: string) => s === "completed" || s === "failed";
-    const prevStatuses = prevItemsRef.current;
-
-    for (const item of items) {
-      const prevStatus = prevStatuses.get(item.id);
-
-      // 只在从非终止态 → 终止态时触发通知（不在首次加载时触发已完成项）
-      if (prevStatus && !isTerminal(prevStatus) && isTerminal(item.status)) {
-        if (notifiedItemRef.current.has(item.id)) continue;
-        notifiedItemRef.current.add(item.id);
-
-        // 异步触发通知，避免阻塞渲染
-        (async () => {
-          const settings = await loadNotifySettings();
-          const isCompleted = item.status === "completed";
-
-          if (settings.notificationEnabled) {
-            sendSystemNotification(
-              isCompleted ? "下载完成" : "下载失败",
-              isCompleted ? `《${item.title}》下载完成` : (item.failReason || "下载失败"),
-            );
-          }
-          addToast(
-            isCompleted ? `《${item.title}》下载完成` : `下载失败: ${item.failReason || "未知错误"}`,
-            isCompleted ? "success" : "error",
-          );
-          if (settings.soundEnabled) {
-            playNotificationSound(isCompleted ? "completed" : "failed", {
-              choice: settings.soundChoice,
-              volume: settings.soundVolume,
-              customUrl: settings.soundChoice === "custom" ? (settings.customSoundUrl || undefined) : undefined,
-              customWavPath: settings.soundChoice === "custom_wav" ? (settings.customSoundUrl || undefined) : undefined,
-            });
-          }
-        })();
-      }
-    }
-
-    prevItemsRef.current = new Map(items.map(i => [i.id, i.status]));
-  }, [items]);
 
   // 过滤
   const filtered = items.filter(
