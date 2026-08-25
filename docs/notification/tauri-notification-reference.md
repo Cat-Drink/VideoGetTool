@@ -98,7 +98,7 @@ await api.updateConfig({
 
 ```json
 {
-  "identifier": "com.cwt15.xiefeng-shiying",
+  "identifier": "com.cwt15.video-get-tool",
   "bundle": {
     "windows": {
       "nsis": {

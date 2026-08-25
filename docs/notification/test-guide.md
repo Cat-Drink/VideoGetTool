@@ -2,9 +2,9 @@
 
 ## 前提条件
 
-- 已安装打包后的 `撷风拾影_0.3.3_x64-setup.exe`
+- 已安装打包后的 `VideoGetTool_0.3.3_x64-setup.exe`
 - 抖音 Cookie 已配置且有效（否则下载会失败，无法测试完成通知）
-- 确保 Windows 系统通知已开启（Windows 设置 → 系统 → 通知和操作 → 确保"撷风拾影"的通知开关为开启）
+- 确保 Windows 系统通知已开启（Windows 设置 → 系统 → 通知和操作 → 确保"VideoGetTool"的通知开关为开启）
 
 ## 测试步骤
 
@@ -38,7 +38,7 @@
 | ③ 音效播放 | 下载完成瞬间播放一声短促的上升双音（C5→E5） | 用耳朵听 |
 | ④ 系统通知 | Windows 右下角弹出 Toast 通知"下载任务完成"或"下载完成" | 观察 Windows 通知区域 |
 
-> **注意：** 开发模式（`tauri dev`）下系统通知会显示为"PowerShell"名称且不会存入通知中心，这是已知限制。打包安装后通知会显示为"撷风拾影"并可存入通知中心。
+> **注意：** 开发模式（`tauri dev`）下系统通知会显示为"PowerShell"名称且不会存入通知中心，这是已知限制。打包安装后通知会显示为"VideoGetTool"并可存入通知中心。
 
 ### 3. 下载多个视频 → 验证聚合通知
 
@@ -97,7 +97,7 @@
 ### 现象 3：系统通知不出现
 
 可能原因：
-- Windows 通知权限被拒绝 → Windows 设置 → 系统 → 通知和操作 → 搜索"撷风拾影" → 确保通知已开启
+- Windows 通知权限被拒绝 → Windows 设置 → 系统 → 通知和操作 → 搜索"VideoGetTool" → 确保通知已开启
 - 通知开关已关闭 → 检查设置
 - 通知在开发模式（tauri dev）下显示为"PowerShell"是正常现象，不影响功能
 
@@ -107,7 +107,7 @@
 - WebSocket 连接断开（前端降级为 REST 轮询，轮询更新 UI 但不触发通知）
 - 修复后：理论上应同时处理 `item_completed` 消息和 `progress` 消息的完成状态，确保通知发送
 
-> 如果以上排查均无效，请检查应用日志：`%APPDATA%\XieFengShiYing\logs\app.log`，搜索 `task_completed` 或 `item_completed` 关键词，确认后端是否正常广播了完成事件。
+> 如果以上排查均无效，请检查应用日志：`%APPDATA%\VideoGetTool\logs\app.log`，搜索 `task_completed` 或 `item_completed` 关键词，确认后端是否正常广播了完成事件。
 
 ## 判断标准速查表
 
