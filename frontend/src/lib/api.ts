@@ -225,3 +225,64 @@ export async function updateConfig(params: Partial<ConfigResponse>): Promise<{ m
 export async function resetConfig(): Promise<{ message: string }> {
   return request("/config/reset", { method: "POST" });
 }
+
+// ============ B 站（Bilibili）API ============
+
+export interface BiliParseResult {
+  url: string;
+  bvid?: string;
+  aid?: number;
+  title?: string;
+  author?: string;
+  author_mid?: number;
+  cover_url?: string;
+  duration?: number;
+  description?: string;
+  pages?: { cid: number; page: number; title: string; duration: number }[];
+  view_count?: number;
+  danmaku_count?: number;
+  publish_time?: number;
+  tags?: string[];
+  mid?: number;
+  error?: string;
+}
+
+export interface BiliPlayUrlResult {
+  bvid: string;
+  cid: number;
+  quality: number;
+  quality_name: string;
+  dash: boolean;
+  video_streams: { id: number; url: string; mime_type: string; codecs: string; width: number; height: number }[];
+  audio_streams: { id: number; url: string; mime_type: string; codecs: string }[];
+  url: string;
+  duration: number;
+}
+
+export async function biliParseUrls(urls: string[], bilibili_cookie?: string): Promise<BiliParseResult[]> {
+  return request("/bilibili/parse", {
+    method: "POST",
+    body: JSON.stringify({ urls, bilibili_cookie }),
+  });
+}
+
+export async function biliPlayurl(bvid: string, cid: number, quality: number = 80): Promise<BiliPlayUrlResult> {
+  return request("/bilibili/playurl", {
+    method: "POST",
+    body: JSON.stringify({ bvid, cid, quality }),
+  });
+}
+
+export async function biliFetchSpace(url: string, mid?: number, max_count: number = 50): Promise<{ items: BiliParseResult[]; has_more: boolean }> {
+  return request("/bilibili/fetch-space", {
+    method: "POST",
+    body: JSON.stringify({ url, mid, max_count }),
+  });
+}
+
+export async function biliCookieTest(cookie: string): Promise<{ valid: boolean; nickname: string | null; message: string }> {
+  return request("/bilibili/cookie-test", {
+    method: "POST",
+    body: JSON.stringify({ cookie }),
+  });
+}

@@ -215,6 +215,12 @@ async def start_download(req: StartDownloadRequest):
                     else ""
                 ),
                 status=TaskItemStatus.PENDING.value,
+                # v0.4.0：B 站 DASH 字段透传
+                bvid=item_data.get("bvid"),
+                cid=item_data.get("cid"),
+                page=item_data.get("page") or 0,
+                audio_url=item_data.get("audio_url") or "",
+                dash_merged="",
             )
             item_id = ctx.task_item_repo.create(task_item)
             task_item.id = item_id

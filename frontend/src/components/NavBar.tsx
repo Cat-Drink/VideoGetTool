@@ -1,10 +1,11 @@
 import { useLocation, useNavigate } from "react-router-dom";
 import { cn } from "../lib/utils";
-import { Download, Link, User } from "lucide-react";
+import { Download, Link, User, Monitor } from "lucide-react";
 
 const navItems = [
   { id: "batch-fetch", path: "/batch-fetch", label: "批量抓取", icon: "link" },
   { id: "profile-fetch", path: "/profile-fetch", label: "主页抓取", icon: "user" },
+  { id: "bili-fetch", path: "/bili-fetch", label: "B站抓取", icon: "monitor" },
   { id: "download", path: "/download", label: "下载任务", icon: "download" },
 ];
 
@@ -12,6 +13,7 @@ const iconMap: Record<string, React.ReactNode> = {
   download: <Download size={20} />,
   link: <Link size={20} />,
   user: <User size={20} />,
+  monitor: <Monitor size={20} />,
 };
 
 export function NavBar() {
