@@ -24,7 +24,7 @@
   </p>
 
   <p align="center">
-    <img src="https://img.shields.io/badge/✅%20测试-599%20passing-22C55E?style=flat-square" alt="tests">
+    <img src="https://img.shields.io/badge/✅%20测试-734%20passing-22C55E?style=flat-square" alt="tests">
     <img src="https://img.shields.io/badge/📐%20覆盖率-85.68%25-3B82F6?style=flat-square" alt="coverage">
     <img src="https://img.shields.io/badge/📦%20构建-Tauri%20%2B%20PyInstaller-FF6B35?style=flat-square" alt="build">
   </p>
@@ -46,7 +46,7 @@
 <br>
 
 > **VideoGetTool (VGT)** —— 名字取自 "Video Get Tool"（视频获取工具），寓意轻松获取网络上的精彩视频。  
-> 一款面向非技术用户的 Windows 桌面端应用，支持抖音短视频、图文、长视频的数据抓取与下载。  
+> 一款面向非技术用户的 Windows 桌面端应用，支持抖音（Douyin）与 B 站（Bilibili）短视频、图文、长视频的数据抓取与下载。  
 > 参考 [Evil0ctal/Douyin_TikTok_Download_API](https://github.com/Evil0ctal/Douyin_TikTok_Download_API) 的设计思路，但 **不直接复用其代码**，有效降低外部依赖风险。
 
 ---
@@ -60,7 +60,7 @@
 | | | |
 |:---:|:---:|:---:|
 | 📹 **内容全覆盖** | ⚡ **智能下载引擎** | 🎨 **舒适体验** |
-| 短视频 · 图文 · 长视频<br>单链接 · 批量 · 主页抓取 | 断点续传 · 并发下载<br>分块加速 · 自动重试 | 现代 Tauri 桌面界面<br>实时进度 · 元数据导出 |
+| 抖音 + B 站双平台<br>短视频 · 图文 · 长视频<br>单链接 · 批量 · 主页抓取 | 断点续传 · 并发下载<br>分块加速 · 自动重试<br>B 站 DASH 音视频合并 | 现代 Tauri 桌面界面<br>实时进度 · 元数据导出 |
 
 </div>
 
@@ -73,11 +73,13 @@
 
 | 能力 | 说明 |
 |:---|:---|
-| 🎬 **短视频下载** | 支持单条抖音短视频下载，保留原始画质 |
+| 🎬 **短视频下载** | 支持抖音 / B 站短视频下载，保留原始画质 |
 | 🖼️ **图文下载** | 支持抖音图文作品的图片与描述一并保存 |
 | 🎥 **长视频下载** | 支持超过 30 分钟的长视频资源下载 |
 | 🔗 **批量链接** | 粘贴多条链接，批量解析并下载 |
 | 👤 **用户主页** | 输入用户主页链接，批量抓取该用户所有作品 |
+| 📺 **B 站 DASH 合并** | B 站高品质视频为音视频分离的 DASH 格式，下载后自动通过 ffmpeg 合并 |
+| 📃 **B 站分 P 选择** | 多 P 视频可逐 P 选择下载，灵活控制下载内容 |
 
 </details>
 
@@ -94,6 +96,7 @@
 | 📡 **并发下载** | 可调节并发数（1–10），根据网络情况自由控制带宽占用 |
 | 🧩 **分块下载** | 大文件自动切分为多个分片并行下载，显著提升速度 |
 | 🔁 **失败重试** | 下载失败自动重试（最多 3 次），临时网络波动无影响 |
+| 🎞️ **DASH 合并** | B 站高质量视频自动下载音视频流并通过 ffmpeg 合并 |
 
 </details>
 
@@ -124,6 +127,8 @@
 ## 📸 界面预览
 
 > <em>界面截图正在路上，以下为布局预览 — 实际界面以最新 Release 为准。</em>
+>
+> 测试套件已从 599 项扩展至 **734 项**（新增 49 项 B 站爬虫测试 + 23 项 B 站 API 测试 + 63 项其他测试），覆盖 B 站 WBI 签名、链接解析、DASH 下载、后端 API 等模块。
 
 <br>
 
@@ -133,7 +138,8 @@
 | 🔗 **批量抓取** | 粘贴抖音链接，批量解析作品信息并加入下载 | 导航栏第 2 项 |
 | 👤 **主页抓取** | 输入用户主页链接，批量抓取作品 | 导航栏第 3 项 |
 | 🍪 **Cookie 配置** | 添加 / 测试 / 管理 Cookie，查看详细教程 | 导航栏第 4 项 |
-| ⚙️ **设置** | 下载目录、并发数、分块大小、元数据格式 | 导航栏第 5 项 |
+| 📺 **B 站抓取** | 粘贴 B 站视频链接，解析多 P 信息并下载 | 导航栏第 5 项 |
+| ⚙️ **设置** | 下载目录、并发数、分块大小、元数据格式 | 导航栏第 6 项 |
 
 <br>
 
@@ -155,10 +161,10 @@ VideoGetTool_0.3.0_x64-setup.exe
 
 ### 🍪 配置 Cookie
 
-抖音需要登录态才能访问数据，首次启动时引导页会引导你完成配置。你也可以随时在 **Cookie 配置页** 操作：
+抖音和 B 站都需要登录态才能访问部分数据。首次启动时引导页会引导你完成配置。你也可以随时在 **Cookie 配置页** 操作：
 
 <details>
-<summary><strong>📋 点击查看 Cookie 获取步骤</strong></summary>
+<summary><strong>📋 点击查看抖音 Cookie 获取步骤</strong></summary>
 
 <br>
 
@@ -169,6 +175,23 @@ VideoGetTool_0.3.0_x64-setup.exe
 | **3** | 刷新页面，点击任意网络请求 |
 | **4** | 在请求的 **Request Headers** 中找到 `Cookie:` 字段，右键复制完整值 |
 | **5** | 回到应用，在 **Cookie 配置页** 粘贴并点击「添加并测试」 |
+
+</details>
+
+<details>
+<summary><strong>📋 点击查看 B 站 Cookie 获取步骤</strong></summary>
+
+<br>
+
+B 站 Cookie 通过 B 站抓取页面的「Cookie 测试」功能单独配置，无需在 Cookie 配置页添加。
+
+| 步骤 | 操作 |
+|:---:|:---|
+| **1** | 打开 B 站官网 [bilibili.com](https://www.bilibili.com) 并登录你的账号 |
+| **2** | 按 <kbd>F12</kbd> 打开开发者工具，切换到 **Network**（网络）标签 |
+| **3** | 刷新页面，点击任意网络请求（如 `api.bilibili.com` 的请求） |
+| **4** | 在请求的 **Request Headers** 中找到 `Cookie:` 字段，右键复制完整值 |
+| **5** | 回到应用，在 **B 站抓取页** → **Cookie 设置** 粘贴并点击「测试 Cookie」 |
 
 </details>
 
@@ -224,8 +247,11 @@ npm run tauri dev
 ### 🧪 运行测试
 
 ```powershell
-# Python 后端测试（599 项，覆盖率 ≥ 80%）
+# Python 后端测试（734 项，覆盖率 ≥ 80%）
 pytest
+
+# 仅运行 B 站模块测试
+pytest tests/test_bilibili/ -v
 
 # 前端 TypeScript 类型检查
 cd frontend && npx tsc --noEmit
@@ -345,6 +371,7 @@ flowchart TB
 │   │   ├── 📄 crawler.py     # 爬虫接口
 │   │   ├── 📄 cookie.py      # Cookie 接口
 │   │   ├── 📄 config.py      # 配置接口
+│   │   ├── 📄 bilibili.py    # B 站 API 接口（解析/播放流/主页/Cookie 测试）
 │   │   └── 📄 ws.py          # WebSocket 实时推送
 │   └── 📂 services/          # 业务服务层
 │
@@ -358,6 +385,7 @@ flowchart TB
 │   │   │   ├── 📄 BatchFetchPage.tsx
 │   │   │   ├── 📄 ProfileFetchPage.tsx
 │   │   │   ├── 📄 CookiePage.tsx
+│   │   │   ├── 📄 BiliFetchPage.tsx  # B 站抓取页面
 │   │   │   ├── 📄 SettingsPage.tsx
 │   │   │   └── 📄 OnboardingPage.tsx
 │   │   ├── 📂 store/         # Zustand 状态管理
@@ -378,7 +406,14 @@ flowchart TB
 │   └── 📄 repositories.py    # 数据访问层
 │
 ├── 📂 crawlers/              # 爬虫组件
-│   ├── 📂 signer/            # 签名算法
+│   ├── 📂 signer/            # 签名算法（抖音）
+│   ├── 📂 bilibili/          # B 站爬虫模块
+│   │   ├── 📄 bili_signer.py       # WBI 签名 + buvid3 生成
+│   │   ├── 📄 bili_url_parser.py   # B 站链接解析
+│   │   ├── 📄 bili_http_client.py  # B 站 HTTP 客户端
+│   │   ├── 📄 bili_video_parser.py # B 站视频/播放流解析
+│   │   ├── 📄 bili_user_crawler.py # B 站用户空间抓取
+│   │   └── 📄 constants.py         # B 站 API 常量
 │   ├── 📄 http_client.py
 │   ├── 📄 url_parser.py
 │   ├── 📄 video_parser.py
@@ -390,7 +425,11 @@ flowchart TB
 │   └── 📄 progress_reporter.py
 │
 ├── 📂 docs/                  # 设计文档与里程碑计划
-├── 📂 tests/                 # Python 测试套件（599 项）
+├── 📂 tests/                 # Python 测试套件（734 项）
+│   ├── 📂 test_bilibili/     # B 站模块测试（79 项）
+│   │   ├── 📄 test_bilibili.py          # 爬虫单元测试（42 项）
+│   │   ├── 📄 test_bili_downloader_dash.py  # DASH 下载测试（7 项）
+│   │   └── 📄 test_bili_api.py          # 后端 API 测试（23 项）
 ├── 📄 sidecar_launcher.py    # PyInstaller 入口脚本
 ├── 📄 pyproject.toml
 ├── 📄 installer.iss          # (旧) Inno Setup 安装脚本
@@ -410,7 +449,34 @@ flowchart TB
 
 <br>
 
-抖音大部分数据接口需要登录态才能访问。Cookie 中包含了你的登录凭证，应用需要用它来请求视频数据。Cookie 仅在你本机使用，**不会上传到任何第三方服务器**。
+抖音和 B 站的数据接口都需要登录态才能访问。Cookie 中包含了你的登录凭证，应用需要用它来请求视频数据。Cookie 仅在你本机使用，**不会上传到任何第三方服务器**。
+
+</details>
+
+<details>
+<summary><strong>B 站视频下载后为什么没有声音？</strong></summary>
+
+<br>
+
+B 站的高清视频（1080P 及以上）采用 DASH 格式，音视频流是分离的。VideoGetTool 会自动检测并通过 ffmpeg 将音视频合并。如果下载后没有声音，请确保系统中已安装 ffmpeg 并配置了正确的路径。
+
+</details>
+
+<details>
+<summary><strong>B 站 DASH 合并需要 ffmpeg 吗？</strong></summary>
+
+<br>
+
+是的。B 站高品质视频的音视频流是分开的，需要用 ffmpeg 合并。VideoGetTool 会自动查找系统中的 ffmpeg（按以下顺序）：配置路径 → 应用内置 resources/ffmpeg/ffmpeg.exe → 系统 PATH。如果找不到 ffmpeg，下载会降级为仅下载视频流（无声音）。
+
+</details>
+
+<details>
+<summary><strong>如何获取 B 站 Cookie？</strong></summary>
+
+<br>
+
+在 B 站抓取页面的「Cookie 设置」区域，粘贴从浏览器开发者工具中复制的 Cookie 值，点击「测试 Cookie」即可验证有效性。B 站 Cookie 需要包含 `SESSDATA` 字段才能登录。详见上方的 [快速上手 → 配置 Cookie](#-配置-cookie)。
 
 </details>
 

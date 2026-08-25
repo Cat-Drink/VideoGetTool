@@ -27,7 +27,7 @@ fn open_link(url: String) -> Result<(), String> {
 /// 获取应用版本号
 #[tauri::command]
 fn get_app_version() -> String {
-    "0.3.3".to_string()
+    "0.4.0".to_string()
 }
 
 /// 播放本地 .wav 文件（Windows 原生 PlaySoundW，异步非阻塞播放）

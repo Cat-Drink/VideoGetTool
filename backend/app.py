@@ -229,7 +229,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 # ===== FastAPI 应用 =====
 app = FastAPI(
     title="VideoGetTool Python Sidecar",
-    version="0.3.3",
+    version="0.4.0",
     lifespan=lifespan,
 )
 

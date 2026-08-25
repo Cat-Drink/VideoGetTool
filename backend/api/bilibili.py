@@ -243,6 +243,8 @@ async def bili_fetch_space(req: BiliSpaceRequest):
         return {"items": items, "has_more": len(items) >= req.max_count}
     except BiliAPIError as e:
         raise HTTPException(status_code=400, detail=f"B 站 API 错误: {e.message}")
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"主页抓取失败: {e}")
 
