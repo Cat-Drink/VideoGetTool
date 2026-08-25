@@ -17,6 +17,11 @@ if TYPE_CHECKING:
         TaskItemRepository,
         TaskRepository,
     )
+    from crawlers.bilibili.bili_http_client import BiliHttpClient
+    from crawlers.bilibili.bili_signer import BiliSigner
+    from crawlers.bilibili.bili_url_parser import BiliURLParser
+    from crawlers.bilibili.bili_user_crawler import BiliUserCrawler
+    from crawlers.bilibili.bili_video_parser import BiliVideoParser
     from crawlers.cookie_tester import CookieTester
     from crawlers.http_client import HttpClient
     from crawlers.signer import Signer
@@ -43,6 +48,12 @@ class AppContext:
         self.video_parser: VideoParser | None = None
         self.user_home_crawler: UserHomeCrawler | None = None
         self.cookie_tester: CookieTester | None = None
+        # v0.4.0：B 站组件
+        self.bili_signer: BiliSigner | None = None
+        self.bili_http_client: BiliHttpClient | None = None
+        self.bili_url_parser: BiliURLParser | None = None
+        self.bili_video_parser: BiliVideoParser | None = None
+        self.bili_user_crawler: BiliUserCrawler | None = None
         self._bg_tasks: list[asyncio.Task] = []
 
 

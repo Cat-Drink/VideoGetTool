@@ -24,6 +24,7 @@ import json
 import math
 import os
 import re
+import shutil
 import sqlite3
 import time
 from collections.abc import Callable
@@ -133,6 +134,7 @@ class Downloader:
         conn: sqlite3.Connection,
         video_parser: VideoParser | None = None,
         cookie_repository: CookieRepository | None = None,
+        ffmpeg_path: str | None = None,
     ) -> None:
         """初始化下载器。
 
@@ -145,6 +147,8 @@ class Downloader:
                 为 None 时图集 4xx 直接失败不重新解析
             cookie_repository: 重新解析时取有效 Cookie（v0.1.7 plan 6.6）；
                 为 None 时图集 4xx 直接失败不重新解析
+            ffmpeg_path: ffmpeg 可执行文件路径（B 站 DASH 合并用）；
+                为 None 时自动查找（resources/ffmpeg/ 或系统 PATH）。
         """
         self._progress_reporter = progress_reporter
         self._http_client = http_client
@@ -154,6 +158,7 @@ class Downloader:
         self._task_repo = TaskRepository(conn)
         self._video_parser = video_parser
         self._cookie_repository = cookie_repository
+        self._ffmpeg_path = ffmpeg_path
         # 按目标文件路径的并发锁：防止同名目标（同一视频/图集被多次下载）
         # 并发写同一个 .part 文件导致合并阶段文件占用冲突（WinError 32）
         self._file_locks: dict[str, asyncio.Lock] = {}
@@ -614,6 +619,18 @@ class Downloader:
                 finally:
                     self._file_locks.pop(lock_key, None)
 
+        # v0.4.0：B 站 DASH 格式（音视频分离）→ 走 DASH 合并流程
+        if task_item.audio_url:
+            final_path = self._get_final_path(task_item, task_item.url)
+            final_path.parent.mkdir(parents=True, exist_ok=True)
+            lock_key = str(final_path)
+            lock = self._file_locks.setdefault(lock_key, asyncio.Lock())
+            async with lock:
+                try:
+                    return await self._download_dash(task_item, final_path)
+                finally:
+                    self._file_locks.pop(lock_key, None)
+
         final_path = self._get_final_path(task_item, task_item.url)
         final_path.parent.mkdir(parents=True, exist_ok=True)
         # 视频：按目标文件串行化，防止同名目标并发写 .part 冲突
@@ -624,6 +641,166 @@ class Downloader:
                 return await self._download_single_file(task_item, task_item.url, final_path)
             finally:
                 self._file_locks.pop(lock_key, None)
+
+    # === DASH 音视频合并（v0.4.0 B 站支持） ===
+
+    def _find_ffmpeg(self) -> str | None:
+        """定位 ffmpeg 可执行文件路径。
+
+        查找顺序:
+            1. 构造时注入的 ffmpeg_path
+            2. 项目资源目录 resources/ffmpeg/ffmpeg.exe（打包随附）
+            3. 系统 PATH（shutil.which）
+
+        Returns:
+            ffmpeg 可执行文件绝对路径；未找到返回 None。
+        """
+        if self._ffmpeg_path:
+            return self._ffmpeg_path
+        # 项目资源目录（开发与打包均可用相对位置解析）
+        candidates = [
+            Path("resources/ffmpeg/ffmpeg.exe"),
+            Path(__file__).resolve().parent.parent / "resources" / "ffmpeg" / "ffmpeg.exe",
+        ]
+        for c in candidates:
+            if c.exists():
+                return str(c.resolve())
+        return shutil.which("ffmpeg")
+
+    async def _merge_dash_streams(
+        self,
+        video_path: Path,
+        audio_path: Path,
+        output_path: Path,
+    ) -> None:
+        """用 ffmpeg 将视频流与音频流合并为单 MP4（流拷贝，不重编码）。
+
+        Args:
+            video_path: 已下载的视频流文件
+            audio_path: 已下载的音频流文件
+            output_path: 合并输出文件路径
+
+        Raises:
+            RuntimeError: ffmpeg 未找到或合并失败。
+        """
+        ffmpeg = self._find_ffmpeg()
+        if ffmpeg is None:
+            raise RuntimeError("未找到 ffmpeg，无法合并 B 站 DASH 音视频流")
+        # 先清理可能存在的旧输出
+        if output_path.exists():
+            output_path.unlink()
+        proc = await asyncio.create_subprocess_exec(
+            ffmpeg,
+            "-y",
+            "-i", str(video_path),
+            "-i", str(audio_path),
+            "-c", "copy",
+            str(output_path),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await proc.communicate()
+        if proc.returncode != 0:
+            raise RuntimeError(
+                f"ffmpeg 合并失败（退出码 {proc.returncode}）: "
+                f"{stderr.decode(errors='replace')[:500]}"
+            )
+
+    async def _download_dash(
+        self,
+        task_item: TaskItem,
+        final_path: Path,
+    ) -> DownloadResult:
+        """下载 B 站 DASH 音视频流并用 ffmpeg 合并。
+
+        流程:
+            1. 并发下载视频流（task_item.url）与音频流（task_item.audio_url）
+               到临时文件 {final_path}.video / {final_path}.audio
+            2. ffmpeg -c copy 合并为最终 MP4
+            3. 清理临时文件，标记任务项完成
+
+        Args:
+            task_item: 任务项（url=视频流, audio_url=音频流）
+            final_path: 最终合并文件路径
+
+        Returns:
+            下载结果
+        """
+        video_part = Path(str(final_path) + ".video")
+        audio_part = Path(str(final_path) + ".audio")
+
+        # 清理可能存在的旧临时文件
+        for tmp in (video_part, audio_part):
+            if tmp.exists():
+                tmp.unlink()
+
+        try:
+            # 并发下载两条流（不单独标记完成状态，由合并后统一标记）
+            video_result, audio_result = await asyncio.gather(
+                self._download_single_file(
+                    task_item,
+                    task_item.url,
+                    video_part,
+                    mark_status=False,
+                    report_progress=True,
+                ),
+                self._download_single_file(
+                    task_item,
+                    task_item.audio_url,
+                    audio_part,
+                    mark_status=False,
+                    report_progress=False,
+                ),
+                return_exceptions=True,
+            )
+
+            # 处理异常结果
+            if isinstance(video_result, BaseException):
+                if isinstance(video_result, asyncio.CancelledError):
+                    raise
+                raise RuntimeError(f"视频流下载失败: {video_result}")
+            if isinstance(audio_result, BaseException):
+                if isinstance(audio_result, asyncio.CancelledError):
+                    raise
+                raise RuntimeError(f"音频流下载失败: {audio_result}")
+            if not video_result.success:
+                self._mark_status(
+                    task_item.id, "failed", fail_reason=video_result.error or "视频流下载失败"
+                )
+                return video_result
+            if not audio_result.success:
+                self._mark_status(
+                    task_item.id, "failed", fail_reason=audio_result.error or "音频流下载失败"
+                )
+                return audio_result
+
+            # 合并音视频
+            await self._merge_dash_streams(video_part, audio_part, final_path)
+
+        except asyncio.CancelledError:
+            # 暂停/取消：清理临时文件后重抛（进度已由子下载持久化）
+            for tmp in (video_part, audio_part):
+                if tmp.exists():
+                    tmp.unlink()
+            raise
+        except (httpx.HTTPError, OSError) as e:
+            reason = f"DASH 下载失败: {e}"
+            self._mark_status(task_item.id, "failed", fail_reason=reason)
+            return DownloadResult(success=False, error=reason)
+        except RuntimeError as e:
+            reason = f"DASH 合并失败: {e}"
+            self._mark_status(task_item.id, "failed", fail_reason=reason)
+            return DownloadResult(success=False, error=reason)
+        finally:
+            # 清理临时流文件
+            for tmp in (video_part, audio_part):
+                if tmp.exists():
+                    tmp.unlink()
+
+        final_str = os.path.normpath(os.path.abspath(str(final_path)))
+        self._mark_status(task_item.id, "completed", local_path=final_str)
+        logger.info("DASH 合并完成 task_item id=%s path=%s", task_item.id, final_str)
+        return DownloadResult(success=True, local_path=final_str)
 
     async def _download_single_file(
         self,

@@ -20,7 +20,7 @@ from app import config
 from app.models import now_iso
 
 # === Schema 版本 ===
-SCHEMA_VERSION: int = 3
+SCHEMA_VERSION: int = 4
 
 # === 建表 SQL（与设计文档 4.1 节完全一致）===
 CREATE_TASKS_SQL = """
@@ -58,6 +58,11 @@ CREATE TABLE IF NOT EXISTS task_items (
     local_path      TEXT,
     selected_image_indices TEXT DEFAULT '',
     item_types      TEXT DEFAULT '',
+    bvid            TEXT,
+    cid             INTEGER,
+    page            INTEGER DEFAULT 0,
+    audio_url       TEXT DEFAULT '',
+    dash_merged     TEXT DEFAULT '',
     created_at      TEXT NOT NULL,
     updated_at      TEXT NOT NULL
 )
@@ -193,6 +198,33 @@ def _migrate_v2_to_v3(conn: sqlite3.Connection) -> None:
 MIGRATIONS[3] = _migrate_v2_to_v3
 
 
+def _migrate_v3_to_v4(conn: sqlite3.Connection) -> None:
+    """v3 → v4：task_items 表新增 B 站支持字段。
+
+    v0.4.0 B 站（Bilibili）视频抓取支持：
+        - bvid: B 站视频 BV 号（如 "BV1GJ411x7h"）
+        - cid: 分 P 的 cid（多 P 视频区分分 P，单 P 为 0/None）
+        - page: 分 P 序号（0 表示不分 P）
+        - audio_url: DASH 音频流 URL（B 站高质量视频音视频分离）
+        - dash_merged: DASH 音频流是否已合并（'' 未合并 / '1' 已合并）
+
+    幂等：列已存在时跳过。
+    """
+    _NEW_BILI_COLUMNS: list[tuple[str, str]] = [
+        ("bvid", "TEXT"),
+        ("cid", "INTEGER"),
+        ("page", "INTEGER DEFAULT 0"),
+        ("audio_url", "TEXT DEFAULT ''"),
+        ("dash_merged", "TEXT DEFAULT ''"),
+    ]
+    for col, col_type in _NEW_BILI_COLUMNS:
+        if not _column_exists(conn, "task_items", col):
+            conn.execute(f"ALTER TABLE task_items ADD COLUMN {col} {col_type}")
+
+
+MIGRATIONS[4] = _migrate_v3_to_v4
+
+
 def get_connection(db_path: Path | str | None = None) -> sqlite3.Connection:
     """获取 SQLite 连接。
 
@@ -298,7 +330,7 @@ def init_default_db() -> sqlite3.Connection:
 
 
 def get_memory_connection() -> sqlite3.Connection:
-    """返回内存数据库连接并执行 init_db()，供测试使用。
+    """返回内存数据库连接并执行 init_db() + migrate()，供测试使用。
 
     内存数据库快且自动清理，不污染真实文件系统。
     注意：内存数据库不支持 WAL 模式（PRAGMA journal_mode 返回 'memory'），
@@ -311,4 +343,5 @@ def get_memory_connection() -> sqlite3.Connection:
     conn.execute("PRAGMA foreign_keys=ON")
     conn.row_factory = sqlite3.Row
     init_db(conn)
+    migrate(conn)
     return conn

@@ -77,6 +77,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     ctx.user_home_crawler = UserHomeCrawler(ctx.http_client, ctx.signer)
     ctx.cookie_tester = CookieTester(ctx.http_client, ctx.signer)
 
+    # 4.5. B 站爬虫层组件（v0.4.0）
+    from crawlers.bilibili import BiliSigner, BiliHttpClient, BiliURLParser, BiliVideoParser, BiliUserCrawler
+
+    ctx.bili_signer = BiliSigner()
+    ctx.bili_http_client = BiliHttpClient(ctx.bili_signer)
+    ctx.bili_url_parser = BiliURLParser(http_client=ctx.bili_http_client._client)
+    ctx.bili_video_parser = BiliVideoParser(ctx.bili_http_client, ctx.bili_signer)
+    ctx.bili_user_crawler = BiliUserCrawler(ctx.bili_http_client, ctx.bili_signer)
+    log.info("B 站爬虫层组件已初始化")
+
     # 5. 下载调度器
     from downloader.scheduler import Scheduler
 
@@ -239,6 +249,9 @@ app.include_router(crawler_router.router, prefix="/api/crawler", tags=["crawler"
 app.include_router(cookie_router.router, prefix="/api/cookie", tags=["cookie"])
 app.include_router(config_router.router, prefix="/api/config", tags=["config"])
 app.include_router(ws_router.router, prefix="/api", tags=["ws"])
+# v0.4.0：B 站路由
+from backend.api import bilibili as bilibili_router
+app.include_router(bilibili_router.router, prefix="/api/bilibili", tags=["bilibili"])
 
 
 if __name__ == "__main__":
