@@ -98,7 +98,7 @@ class TestSetupLogger:
     @staticmethod
     def _redirect_paths(tmp_path: Path, monkeypatch) -> None:
         """重定向日志路径到临时目录，避免污染真实环境。"""
-        fake_app_data = tmp_path / "XieFengShiYing"
+        fake_app_data = tmp_path / "VideoGetTool"
         fake_log_dir = fake_app_data / "logs"
         fake_log_file = fake_log_dir / "app.log"
         monkeypatch.setattr(config, "APP_DATA_DIR", fake_app_data)

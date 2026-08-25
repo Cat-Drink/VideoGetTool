@@ -82,7 +82,7 @@ def sample_task() -> Task:
         status="pending",
         total_items=1,
         completed_items=0,
-        download_dir="C:/Downloads/XieFengShiYing",
+        download_dir="C:/Downloads/VideoGetTool",
     )
 
 

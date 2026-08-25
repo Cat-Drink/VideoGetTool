@@ -1,13 +1,13 @@
 """爬虫层异常类层次结构。
 
-本模块定义项目所有自定义异常的根（XieFengShiYingError）、爬虫层异常基类
+本模块定义项目所有自定义异常的根（VideoGetToolError）、爬虫层异常基类
 （CrawlerError）以及签名相关异常（SignError）。同时预定义 Cookie 失效、
 限流、作品不存在、网络异常等爬虫层通用异常，供后续里程碑直接使用。
 
 完整异常层次图（含后续里程碑将补充的异常）：
 
     Exception
-    └── XieFengShiYingError                    # 项目所有自定义异常的根
+    └── VideoGetToolError                    # 项目所有自定义异常的根
         ├── CrawlerError                      # 爬虫层异常基类
         │   ├── InvalidURLFormatError         # 链接格式无法识别
         │   ├── CookieInvalidError            # Cookie 失效或被风控
@@ -28,10 +28,10 @@
 from __future__ import annotations
 
 
-class XieFengShiYingError(Exception):
+class VideoGetToolError(Exception):
     """项目所有自定义异常的根基类。
 
-    所有自定义异常均继承自此，便于上层 ``except XieFengShiYingError`` 统一兜底。
+    所有自定义异常均继承自此，便于上层 ``except VideoGetToolError`` 统一兜底。
     本类不直接抛出，触发场景为未知错误时由顶层 ``except`` 捕获并提示
     "发生未知错误"。
     """
@@ -39,7 +39,7 @@ class XieFengShiYingError(Exception):
     pass
 
 
-class CrawlerError(XieFengShiYingError):
+class CrawlerError(VideoGetToolError):
     """爬虫层异常基类。
 
     本类不直接抛出，上层按子类分别处理。

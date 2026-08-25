@@ -16,13 +16,13 @@ set -e
 PYTHON=""
 
 # 1) 项目 conda 环境（Windows Git Bash 路径）
-if [ -z "$PYTHON" ] && [ -x "/c/Users/cwt15/.conda/envs/xiefeng-shiying/python.exe" ]; then
-    PYTHON="/c/Users/cwt15/.conda/envs/xiefeng-shiying/python.exe"
+if [ -z "$PYTHON" ] && [ -x "/c/Users/cwt15/.conda/envs/video-get-tool/python.exe" ]; then
+    PYTHON="/c/Users/cwt15/.conda/envs/video-get-tool/python.exe"
 fi
 
 # 2) 项目 conda 环境（Unix / WSL 路径）
-if [ -z "$PYTHON" ] && [ -x "$HOME/.conda/envs/xiefeng-shiying/bin/python3" ]; then
-    PYTHON="$HOME/.conda/envs/xiefeng-shiying/bin/python3"
+if [ -z "$PYTHON" ] && [ -x "$HOME/.conda/envs/video-get-tool/bin/python3" ]; then
+    PYTHON="$HOME/.conda/envs/video-get-tool/bin/python3"
 fi
 
 # 3) PATH 中的 python3 / python
