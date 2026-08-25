@@ -40,6 +40,7 @@ markers = [
     "integration: 集成测试（需真实 Cookie，CI 默认跳过）",
     "full_chain: 全链路集成测试（从 URL 解析到文件下载）",
     "slow: 耗时较长的性能测试（可选运行）",
+    "bilibili: B 站（Bilibili）爬虫模块测试（crawlers/bilibili/）",
 ]
 
 [tool.coverage.run]
