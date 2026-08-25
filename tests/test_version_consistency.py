@@ -26,8 +26,8 @@ _INSTALLER_PATH = _PROJECT_ROOT / "installer.iss"
 
 # installer.iss 中 #define MyAppVersion "x.y.z" 的捕获正则
 _INSTALLER_DEFINE_RE = re.compile(r'^\s*#define\s+MyAppVersion\s+"([^"]+)"', re.MULTILINE)
-# installer.iss 中 OutputBaseFilename=XieFengShiYing_Setup_v<version> 的捕获正则
-_INSTALLER_OUTPUT_RE = re.compile(r"^OutputBaseFilename=XieFengShiYing_Setup_v(\S+)", re.MULTILINE)
+# installer.iss 中 OutputBaseFilename=VideoGetTool_Setup_v<version> 的捕获正则
+_INSTALLER_OUTPUT_RE = re.compile(r"^OutputBaseFilename=VideoGetTool_Setup_v(\S+)", re.MULTILINE)
 
 # 后端版本号
 _APP_VERSION = app.version
