@@ -57,7 +57,7 @@ export default function SettingsPage() {
   };
 
   const handleOpenRepo = () => {
-    openExternal("https://github.com/Cat-Drink/Douyin_Catcher");
+    openExternal("https://github.com/Cat-Drink/VideoGetTool");
   };
 
   if (loading) {
@@ -165,7 +165,7 @@ export default function SettingsPage() {
             <div className="flex items-center justify-between">
               <div>
                 <span className="text-sm text-text-primary">日志位置</span>
-                <p className="text-xs text-text-disabled mt-0.5">%APPDATA%\XieFengShiYing\logs\app.log</p>
+                <p className="text-xs text-text-disabled mt-0.5">%APPDATA%\VideoGetTool\logs\app.log</p>
               </div>
               <Button variant="secondary" size="sm" disabled>
                 <Download size={14} className="mr-1" /> 导出日志
@@ -180,7 +180,7 @@ export default function SettingsPage() {
           <div className="border border-border-light rounded-lg px-5 py-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-text-primary">撷风拾影 (XieFengShiYing)</p>
+                <p className="text-sm font-medium text-text-primary">VideoGetTool (VGT)</p>
                 <p className="text-xs text-text-secondary mt-0.5">版本: v0.3.0</p>
               </div>
               <div className="flex gap-2">

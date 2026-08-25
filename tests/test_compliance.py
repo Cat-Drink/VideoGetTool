@@ -7,7 +7,7 @@ PROJECT_ROOT = Path(__file__).parent.parent
 
 def test_installer_points_to_project_repository() -> None:
     text = (PROJECT_ROOT / "installer.iss").read_text(encoding="utf-8-sig")
-    assert '#define MyAppURL "https://github.com/Cat-Drink/Douyin_Catcher"' in text
+    assert '#define MyAppURL "https://github.com/Cat-Drink/VideoGetTool"' in text
     assert "Evil0ctal/Douyin_TikTok_Download_API" not in text
 
 

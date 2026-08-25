@@ -214,7 +214,7 @@ class TestInitDefaultDb:
     def test_init_default_db_returns_ready_connection(self, tmp_path: Path, monkeypatch) -> None:
         """init_default_db 返回就绪连接（用 tmp_path 隔离）。"""
         # 重定向 APP_DATA_DIR 到临时目录，避免污染真实环境
-        fake_app_data = tmp_path / "XieFengShiYing"
+        fake_app_data = tmp_path / "VideoGetTool"
         monkeypatch.setattr(config, "APP_DATA_DIR", fake_app_data)
         monkeypatch.setattr(config, "DB_PATH", fake_app_data / "data.db")
         monkeypatch.setattr(config, "LOG_DIR", fake_app_data / "logs")

@@ -675,7 +675,7 @@
 | `wry` | `0.55.1` | 需人工核实（从 crates.io 或 crate 源码确认） |
 | `x11` | `2.21.0` | 需人工核实（从 crates.io 或 crate 源码确认） |
 | `x11-dl` | `2.21.0` | 需人工核实（从 crates.io 或 crate 源码确认） |
-| `xiefeng-shiying` | `0.3.0` | 需人工核实（从 crates.io 或 crate 源码确认） |
+| `video-get-tool` | `0.3.0` | 需人工核实（从 crates.io 或 crate 源码确认） |
 | `yoke` | `0.8.3` | 需人工核实（从 crates.io 或 crate 源码确认） |
 | `yoke-derive` | `0.8.2` | 需人工核实（从 crates.io 或 crate 源码确认） |
 | `zbus` | `5.18.0` | 需人工核实（从 crates.io 或 crate 源码确认） |

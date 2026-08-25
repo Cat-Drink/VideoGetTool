@@ -1,10 +1,10 @@
 <div align="center">
-  <img src="assets/icon.ico" alt="撷风拾影" width="128" height="128" style="border-radius: 24px;">
+  <img src="assets/icon.ico" alt="VideoGetTool" width="128" height="128" style="border-radius: 24px;">
 
-  # 撷风拾影
+  # VideoGetTool
 
   <p align="center">
-    <strong>「撷取风中流转的光影」</strong>
+    <strong>「让视频获取更简单」</strong>
   </p>
 
   <p align="center">
@@ -12,8 +12,8 @@
   </p>
 
   <p align="center">
-    <a href="https://github.com/Cat-Drink/Douyin_Catcher/releases">
-      <img src="https://img.shields.io/github/v/release/Cat-Drink/Douyin_Catcher?style=flat-square&label=版本&color=7C3AED" alt="版本">
+    <a href="https://github.com/Cat-Drink/VideoGetTool/releases">
+      <img src="https://img.shields.io/github/v/release/Cat-Drink/VideoGetTool?style=flat-square&label=版本&color=7C3AED" alt="版本">
     </a>
     <img src="https://img.shields.io/badge/Python-3.11+-4B8BBE?style=flat-square&logo=python&logoColor=white" alt="Python">
     <img src="https://img.shields.io/badge/UI-Tauri%20%2F%20React-41CD52?style=flat-square&logo=react&logoColor=white" alt="Tauri React">
@@ -45,7 +45,7 @@
 
 <br>
 
-> **撷风拾影** —— 名字取自"撷取风中流转的光影"，寓意捕捉互联网上转瞬即逝的精彩内容。  
+> **VideoGetTool (VGT)** —— 名字取自 "Video Get Tool"（视频获取工具），寓意轻松获取网络上的精彩视频。  
 > 一款面向非技术用户的 Windows 桌面端应用，支持抖音短视频、图文、长视频的数据抓取与下载。  
 > 参考 [Evil0ctal/Douyin_TikTok_Download_API](https://github.com/Evil0ctal/Douyin_TikTok_Download_API) 的设计思路，但 **不直接复用其代码**，有效降低外部依赖风险。
 
@@ -145,10 +145,10 @@
 
 ### 📦 下载安装
 
-从 [GitHub Releases](https://github.com/Cat-Drink/Douyin_Catcher/releases) 页面下载最新版安装包：
+从 [GitHub Releases](https://github.com/Cat-Drink/VideoGetTool/releases) 页面下载最新版安装包：
 
 ```text
-撷风拾影_0.3.0_x64-setup.exe
+VideoGetTool_0.3.0_x64-setup.exe
 ```
 
 运行安装包，按向导提示完成安装即可。
@@ -335,7 +335,7 @@ flowchart TB
 ## 📁 项目结构
 
 ```text
-📦 Douyin_Catcher/
+📦 VideoGetTool/
 ├── 📂 backend/               # FastAPI 后端服务
 │   ├── 📄 app.py             # 入口与生命周期管理
 │   ├── 📄 state.py           # 全局应用上下文
@@ -421,7 +421,7 @@ flowchart TB
 
 <br>
 
-默认保存在 `%USERPROFILE%/Downloads/XieFengShiYing/` 目录下。你可以在 **设置页** 中随时更改。
+默认保存在 `%USERPROFILE%/Downloads/VideoGetTool/` 目录下。你可以在 **设置页** 中随时更改。
 
 </details>
 
@@ -443,7 +443,7 @@ flowchart TB
 
 <br>
 
-欢迎在 [GitHub Issues](https://github.com/Cat-Drink/Douyin_Catcher/issues) 提交问题或建议。提问前请先搜索是否已有类似问题。
+欢迎在 [GitHub Issues](https://github.com/Cat-Drink/VideoGetTool/issues) 提交问题或建议。提问前请先搜索是否已有类似问题。
 
 </details>
 
@@ -462,14 +462,14 @@ flowchart TB
 <br>
 
 [查看 LICENSE 文件](LICENSE) · [第三方归属与许可证说明](THIRD-PARTY-NOTICES.md) · [许可证迁移说明 (MIT → Apache 2.0)](docs/compliance/v0.3.0-license-migration.md)
-[GitHub 仓库](https://github.com/Cat-Drink/Douyin_Catcher) ·
-[提交 Issue](https://github.com/Cat-Drink/Douyin_Catcher/issues)
+[GitHub 仓库](https://github.com/Cat-Drink/VideoGetTool) ·
+[提交 Issue](https://github.com/Cat-Drink/VideoGetTool/issues)
 
 <br>
 
 <sub>
-  Copyright © 2026 撷风拾影 Contributors ·
-  <a href="https://github.com/Cat-Drink/Douyin_Catcher/graphs/contributors">贡献者</a>
+  Copyright © 2026 VideoGetTool Contributors ·
+  <a href="https://github.com/Cat-Drink/VideoGetTool/graphs/contributors">贡献者</a>
 </sub>
 
 </div>
@@ -483,8 +483,8 @@ flowchart TB
 <div align="center">
   <br>
   <sub>
-    <strong>撷风拾影</strong> — 用 ❤️ 构建 ·
-    <em>撷取风中流转的光影，珍藏每一刻精彩</em>
+    <strong>VideoGetTool</strong> — 用 ❤️ 构建 ·
+    <em>视频获取，珍藏每一刻精彩</em>
   </sub>
   <br><br>
   <sub>
@@ -492,6 +492,6 @@ flowchart TB
   </sub>
   <br><br>
   <sub>
-    <a href="#撷风拾影">⬆️ 回到顶部</a>
+    <a href="#VideoGetTool">⬆️ 回到顶部</a>
   </sub>
 </div>

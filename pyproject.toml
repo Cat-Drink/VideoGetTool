@@ -1,8 +1,8 @@
 [project]
-name = "xiefeng-shiying"
+name = "video-get-tool"
 version = "0.3.3"
 description = "抖音短视频（含图文、长视频）数据抓取的 Windows 桌面端应用"
-authors = [{ name = "撷风拾影 Contributors" }]
+authors = [{ name = "VideoGetTool Contributors" }]
 # v0.3.0 起：项目协议由 MIT 切换为 Apache License 2.0
 license = { text = "Apache-2.0" }
 requires-python = ">=3.11"

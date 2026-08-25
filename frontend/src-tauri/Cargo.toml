@@ -1,14 +1,14 @@
 [package]
-name = "xiefeng-shiying"
+name = "video-get-tool"
 version = "0.3.0"
-description = "撷风拾影 - 抖音视频下载桌面工具"
+description = "VideoGetTool - 抖音视频下载桌面工具"
 authors = ["chenwentao"]
 # v0.3.0 起：项目协议由 MIT 切换为 Apache License 2.0
 license = "Apache-2.0"
 edition = "2021"
 
 [lib]
-name = "xiefeng_shiying_lib"
+name = "video_get_tool_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

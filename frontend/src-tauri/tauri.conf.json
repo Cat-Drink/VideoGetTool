@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "撷风拾影",
+  "productName": "VideoGetTool",
   "version": "0.3.3",
-  "identifier": "com.cwt15.xiefeng-shiying",
+  "identifier": "com.cwt15.video-get-tool",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "撷风拾影",
+        "title": "VideoGetTool",
         "width": 1200,
         "height": 800,
         "minWidth": 900,

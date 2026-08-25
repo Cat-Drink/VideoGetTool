@@ -12,22 +12,22 @@ class TestConfigPaths:
     """配置路径常量测试。"""
 
     def test_app_data_dir_uses_appdata(self) -> None:
-        """APP_DATA_DIR 应指向 %APPDATA%/XieFengShiYing/。"""
-        expected = Path(os.environ.get("APPDATA", str(Path.home()))) / "XieFengShiYing"
+        """APP_DATA_DIR 应指向 %APPDATA%/VideoGetTool/。"""
+        expected = Path(os.environ.get("APPDATA", str(Path.home()))) / "VideoGetTool"
         assert expected == config.APP_DATA_DIR
 
     def test_db_path_under_app_data_dir(self) -> None:
-        """DB_PATH 应指向 %APPDATA%/XieFengShiYing/data.db。"""
+        """DB_PATH 应指向 %APPDATA%/VideoGetTool/data.db。"""
         assert config.DB_PATH == config.APP_DATA_DIR / "data.db"
 
     def test_log_file_under_log_dir(self) -> None:
-        """LOG_FILE 应指向 %APPDATA%/XieFengShiYing/logs/app.log。"""
+        """LOG_FILE 应指向 %APPDATA%/VideoGetTool/logs/app.log。"""
         assert config.LOG_FILE == config.LOG_DIR / "app.log"
         assert config.LOG_DIR == config.APP_DATA_DIR / "logs"
 
     def test_default_download_dir(self) -> None:
-        """DEFAULT_DOWNLOAD_DIR 应指向 ~/Downloads/XieFengShiYing。"""
-        assert Path.home() / "Downloads" / "XieFengShiYing" == config.DEFAULT_DOWNLOAD_DIR
+        """DEFAULT_DOWNLOAD_DIR 应指向 ~/Downloads/VideoGetTool。"""
+        assert Path.home() / "Downloads" / "VideoGetTool" == config.DEFAULT_DOWNLOAD_DIR
 
 
 class TestDefaultConfigs:
@@ -90,7 +90,7 @@ class TestEnsureAppDirs:
     def test_ensure_app_dirs_creates_directories(self, tmp_path: Path, monkeypatch) -> None:
         """ensure_app_dirs 应创建 APP_DATA_DIR 和 LOG_DIR。"""
         # 重定向到临时目录
-        fake_app_data = tmp_path / "XieFengShiYing"
+        fake_app_data = tmp_path / "VideoGetTool"
         fake_log_dir = fake_app_data / "logs"
         monkeypatch.setattr(config, "APP_DATA_DIR", fake_app_data)
         monkeypatch.setattr(config, "LOG_DIR", fake_log_dir)
@@ -106,7 +106,7 @@ class TestEnsureAppDirs:
 
     def test_ensure_app_dirs_idempotent(self, tmp_path: Path, monkeypatch) -> None:
         """重复调用 ensure_app_dirs 不报错。"""
-        fake_app_data = tmp_path / "XieFengShiYing"
+        fake_app_data = tmp_path / "VideoGetTool"
         fake_log_dir = fake_app_data / "logs"
         monkeypatch.setattr(config, "APP_DATA_DIR", fake_app_data)
         monkeypatch.setattr(config, "LOG_DIR", fake_log_dir)
@@ -118,7 +118,7 @@ class TestEnsureAppDirs:
 
     def test_ensure_app_dirs_creates_nested_parents(self, tmp_path: Path, monkeypatch) -> None:
         """ensure_app_dirs 应创建多级父目录。"""
-        fake_app_data = tmp_path / "a" / "b" / "c" / "XieFengShiYing"
+        fake_app_data = tmp_path / "a" / "b" / "c" / "VideoGetTool"
         fake_log_dir = fake_app_data / "logs"
         monkeypatch.setattr(config, "APP_DATA_DIR", fake_app_data)
         monkeypatch.setattr(config, "LOG_DIR", fake_log_dir)

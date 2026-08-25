@@ -130,7 +130,7 @@ pub fn run() {
             let _tray = TrayIconBuilder::new()
                 .icon(icon)
                 .menu(&menu)
-                .tooltip("撷风拾影")
+                .tooltip("VideoGetTool")
                 .on_menu_event(|app, event| {
                     match event.id.as_ref() {
                         "show" => {

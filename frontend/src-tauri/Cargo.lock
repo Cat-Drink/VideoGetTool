@@ -5289,7 +5289,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "xiefeng-shiying"
+name = "video-get-tool"
 version = "0.3.0"
 dependencies = [
  "open",
