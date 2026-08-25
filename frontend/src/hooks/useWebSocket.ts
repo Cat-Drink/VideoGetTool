@@ -7,7 +7,7 @@
  * - 在 Tauri 环境中，插件连接失败时保持插件模式重试，绝不降级到原生 WebSocket
  *   （原生 WebSocket 在打包版中因混合内容限制永远无法连接）
  * - 使用 onMessageRef 避免 connect 依赖 onMessage，防止 connect 引用变化导致频繁重连
- * - 连接诊断通过 Tauri invoke 写入 %APPDATA%/XieFengShiYing/ws_diag.log
+ * - 连接诊断通过 Tauri invoke 写入 %APPDATA%/VideoGetTool/ws_diag.log
  */
 
 import { useEffect, useRef, useCallback, useState } from "react";

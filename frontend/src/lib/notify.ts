@@ -28,7 +28,7 @@ async function ensurePermission(): Promise<boolean> {
  * 发送 Windows 原生 Toast 通知
  *
  * 底层走 Rust 侧 notify-rust（WinRT Toast API），
- * 打包后通知会填入正确的 AUMID（com.cwt15.xiefeng-shiying），
+ * 打包后通知会填入正确的 AUMID（com.cwt15.video-get-tool），
  * 可存入 Windows 通知中心、支持点击激活。
  *
  * 开发调试模式（tauri dev）下通知会显示为 "PowerShell" 名称，

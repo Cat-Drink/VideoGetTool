@@ -27,7 +27,7 @@ export default function OnboardingPage() {
         const cfg = await api.fetchConfig();
         setDownloadDir(cfg.download_dir);
       } catch {
-        setDownloadDir("D:\\Downloads\\XieFengShiYing");
+        setDownloadDir("D:\\Downloads\\VideoGetTool");
       } finally {
         setInitialLoading(false);
       }
@@ -129,9 +129,9 @@ export default function OnboardingPage() {
       {step === "welcome" && (
         <div className="text-center">
           <div className="w-24 h-24 rounded-2xl bg-purple-500 flex items-center justify-center text-white text-3xl font-bold mx-auto mb-6">
-            撷
+            V
           </div>
-          <h1 className="text-display font-semibold text-text-primary mb-2">欢迎使用撷风拾影</h1>
+          <h1 className="text-display font-semibold text-text-primary mb-2">欢迎使用 VideoGetTool</h1>
           <p className="text-sm text-text-secondary mb-2">一款让你轻松下载抖音视频的桌面工具</p>
           <p className="text-xs text-text-disabled mb-8">无需命令行，配置 Cookie 后即可一键下载</p>
           <Button onClick={() => setStep("directory")}>开始使用</Button>
@@ -147,7 +147,7 @@ export default function OnboardingPage() {
             <Input value={downloadDir} onChange={(e) => setDownloadDir(e.target.value)} />
             <Button variant="secondary" onClick={handlePickDirectory}>浏览...</Button>
           </div>
-          <p className="text-xs text-info mt-2">默认目录为系统下载文件夹下的 XieFengShiYing 子文件夹，可随时在设置中修改。</p>
+          <p className="text-xs text-info mt-2">默认目录为系统下载文件夹下的 VideoGetTool 子文件夹，可随时在设置中修改。</p>
           <div className="flex justify-between mt-8">
             <Button variant="ghost" disabled>上一步</Button>
             <Button onClick={handleSaveDir} disabled={loading || !downloadDir.trim()}>

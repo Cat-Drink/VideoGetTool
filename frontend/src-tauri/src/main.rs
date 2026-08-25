@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    xiefeng_shiying_lib::run()
+    video_get_tool_lib::run()
 }

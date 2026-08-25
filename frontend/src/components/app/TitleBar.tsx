@@ -51,9 +51,9 @@ export function TitleBar() {
       {/* 左侧：应用图标 + 名称（可拖拽区域） */}
       <div className="flex items-center gap-2 px-4 h-full" data-tauri-drag-region>
         <div className="w-6 h-6 rounded-md bg-purple-500 flex items-center justify-center text-white text-xs font-bold">
-          撷
+          V
         </div>
-        <span className="text-sm font-semibold text-purple-500">撷风拾影</span>
+        <span className="text-sm font-semibold text-purple-500">VideoGetTool</span>
       </div>
 
       {/* 中间：弹性拖拽区域（不包含右侧按钮，按钮无需 pointer-events hack） */}
