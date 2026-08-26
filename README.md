@@ -78,7 +78,7 @@
 | 🎥 **长视频下载** | 支持超过 30 分钟的长视频资源下载 |
 | 🔗 **批量链接** | 粘贴多条链接，批量解析并下载 |
 | 👤 **用户主页** | 输入用户主页链接，批量抓取该用户所有作品 |
-| 📺 **B 站 DASH 合并** | B 站高品质视频为音视频分离的 DASH 格式，下载后自动通过 ffmpeg 合并 |
+| 📺 **B 站 DASH 合并** | B 站高品质视频为音视频分离的 DASH 格式，下载后自动通过 ffmpeg 合并（需自行安装 ffmpeg，见[快速上手](#🚀-快速上手)） |
 | 📃 **B 站分 P 选择** | 多 P 视频可逐 P 选择下载，灵活控制下载内容 |
 
 </details>
@@ -96,7 +96,7 @@
 | 📡 **并发下载** | 可调节并发数（1–10），根据网络情况自由控制带宽占用 |
 | 🧩 **分块下载** | 大文件自动切分为多个分片并行下载，显著提升速度 |
 | 🔁 **失败重试** | 下载失败自动重试（最多 3 次），临时网络波动无影响 |
-| 🎞️ **DASH 合并** | B 站高质量视频自动下载音视频流并通过 ffmpeg 合并 |
+| 🎞️ **DASH 合并** | B 站高质量视频自动下载音视频流并通过 ffmpeg 合并（需自行安装 ffmpeg） |
 
 </details>
 
@@ -158,6 +158,44 @@ VideoGetTool_0.3.0_x64-setup.exe
 ```
 
 运行安装包，按向导提示完成安装即可。
+
+> **💡 需要自行安装 ffmpeg（仅下载 B 站视频时必需）**
+>
+> B 站的高清视频（720P 及以上）采用 DASH 格式，音视频流是分离的，下载后需要 **ffmpeg** 将它们合并成带声音的完整视频。VideoGetTool **不会自动捆绑或下载 ffmpeg**，需要你自行安装。抖音视频下载**不需要** ffmpeg。
+
+<details>
+<summary><strong>📋 点击查看 ffmpeg 安装方法（Windows）</strong></summary>
+
+<br>
+
+**方式一：winget 一键安装（推荐，最简单）**
+
+打开 PowerShell 或 CMD，执行：
+
+```powershell
+winget install Gyan.FFmpeg
+```
+
+安装完成后**重新打开** VideoGetTool（或重启应用），即可自动识别。
+
+**方式二：官网手动下载**
+
+1. 打开 [gyan.dev 官方构建页](https://www.gyan.dev/ffmpeg/builds/)（或 [ffmpeg.org 下载页](https://ffmpeg.org/download.html)）
+2. 下载 **ffmpeg-release-essentials.zip**（约 80MB）并解压
+3. 将解压出的 `bin\ffmpeg.exe` 所在目录加入系统 **PATH** 环境变量（或把 `ffmpeg.exe` 复制到 VideoGetTool 的 `resources\ffmpeg\` 目录）
+4. 重新打开 VideoGetTool
+
+**验证是否安装成功**
+
+```powershell
+ffmpeg -version
+```
+
+能输出版本信息即表示安装成功。
+
+> ⚠️ 如果未安装 ffmpeg，B 站 DASH 视频的下载任务会以"合并失败"结束，**不会**生成可播放的成品文件。请先安装 ffmpeg 再下载 B 站高清视频。
+
+</details>
 
 ### 🍪 配置 Cookie
 
@@ -458,7 +496,7 @@ flowchart TB
 
 <br>
 
-B 站的高清视频（1080P 及以上）采用 DASH 格式，音视频流是分离的。VideoGetTool 会自动检测并通过 ffmpeg 将音视频合并。如果下载后没有声音，请确保系统中已安装 ffmpeg 并配置了正确的路径。
+B 站的高清视频（720P 及以上）采用 DASH 格式，音视频流是分离的。VideoGetTool 会检测到 DASH 流，需要调用 **ffmpeg** 将音视频合并。如果下载后没有声音（或下载失败提示"未找到 ffmpeg"），说明系统中尚未安装 ffmpeg 或应用未识别到它——请参照 [快速上手 → 下载安装](#📦-下载安装) 中的方法安装 ffmpeg 后重试。
 
 </details>
 
@@ -467,7 +505,11 @@ B 站的高清视频（1080P 及以上）采用 DASH 格式，音视频流是分
 
 <br>
 
-是的。B 站高品质视频的音视频流是分开的，需要用 ffmpeg 合并。VideoGetTool 会自动查找系统中的 ffmpeg（按以下顺序）：配置路径 → 应用内置 resources/ffmpeg/ffmpeg.exe → 系统 PATH。如果找不到 ffmpeg，下载会降级为仅下载视频流（无声音）。
+是的，**必须自行安装**。B 站高品质视频（720P 及以上）的音视频流是分开的，需要用 ffmpeg 合并。VideoGetTool 不会捆绑 ffmpeg，会自动按以下顺序查找：配置路径 → 应用内置 `resources/ffmpeg/ffmpeg.exe` → 系统 PATH。
+
+**如果找不到 ffmpeg**，B 站 DASH 视频的下载任务会以「DASH 合并失败：未找到 ffmpeg」结束，**不会**生成可播放的成品文件（仅抖音视频不受影响）。
+
+安装方法见 [快速上手 → 下载安装 → ffmpeg 安装方法](#📦-下载安装)。
 
 </details>
 
@@ -477,6 +519,21 @@ B 站的高清视频（1080P 及以上）采用 DASH 格式，音视频流是分
 <br>
 
 在 B 站抓取页面的「Cookie 设置」区域，粘贴从浏览器开发者工具中复制的 Cookie 值，点击「测试 Cookie」即可验证有效性。B 站 Cookie 需要包含 `SESSDATA` 字段才能登录。详见上方的 [快速上手 → 配置 Cookie](#-配置-cookie)。
+
+</details>
+
+<details>
+<summary><strong>如何安装 ffmpeg？</strong></summary>
+
+<br>
+
+Windows 下推荐使用 winget 一键安装：
+
+```powershell
+winget install Gyan.FFmpeg
+```
+
+安装后重新打开 VideoGetTool 即可自动识别。也可前往 [gyan.dev 官方构建页](https://www.gyan.dev/ffmpeg/builds/) 手动下载解压，并将 `bin` 目录加入系统 PATH。验证方法：在命令行执行 `ffmpeg -version`，能输出版本信息即安装成功。
 
 </details>
 
