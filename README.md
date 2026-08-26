@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="assets/icon.ico" alt="VideoGetTool" width="128" height="128" style="border-radius: 24px;">
+  <img src="assets/VGT.jpg" alt="VideoGetTool" width="160" style="border-radius: 24px;">
 
   # VideoGetTool
 
