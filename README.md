@@ -341,137 +341,27 @@ npm run tauri build -- --bundles nsis
 
 <br>
 
-### 🏗️ 架构分层
-
-```mermaid
----
-config:
-  theme: base
-  themeVariables:
-    primaryColor: "#7C3AED"
-    primaryBorderColor: "#5B21B6"
-    lineColor: "#E5E7EB"
-    textColor: "#374151"
----
-flowchart TB
-    subgraph DESKTOP["桌面壳 (Tauri 2)"]
-        TRAY["系统托盘"]
-        WINDOW["原生窗口管理"]
-        DIALOG["文件对话框"]
-        SIDECAR["Sidecar 进程管理"]
-    end
-
-    subgraph FRONTEND["前端 (React 18 + TypeScript)"]
-        UI["shadcn/ui 组件库"]
-        ROUTER["React Router 页面路由"]
-        QUERY["TanStack Query API 缓存"]
-        STORE["Zustand 客户端状态"]
-        WS["WebSocket 实时进度"]
-    end
-
-    subgraph SIDECAR_PY["Python Sidecar (FastAPI)"]
-        REST["REST API 层"]
-        WS_API["WebSocket 推送"]
-        SCHED["Scheduler 下载调度"]
-        CRAWLER_PY["爬虫引擎"]
-        SIGNER["签名算法"]
-        DB["SQLite 数据层"]
-    end
-
-    DESKTOP -->|启动/管理| SIDECAR_PY
-    FRONTEND -->|HTTP / WS| SIDECAR_PY
-    DESKTOP -->|WebView 加载| FRONTEND
-```
-
-架构说明：
-
-- **Tauri 桌面壳**：管理窗口、托盘、文件对话框，启动 Python sidecar 进程
-- **React 前端**：运行在 Tauri WebView 中，通过 REST API + WebSocket 与后端通信
-- **Python Sidecar**：独立的 FastAPI 进程，提供爬虫、下载、数据持久化能力
-- **前后端分离**：前端只管 UI，后端只管业务逻辑，通过 HTTP/WS 协议解耦
-
-<br>
-
 ---
 
 <br>
 
 ## 📁 项目结构
 
+项目采用 **前后端分离 + Sidecar 架构**：Tauri 桌面壳承载 React 前端，前端通过 REST / WebSocket 与 Python FastAPI sidecar 通信。
+
 ```text
 📦 VideoGetTool/
-├── 📂 backend/               # FastAPI 后端服务
-│   ├── 📄 app.py             # 入口与生命周期管理
-│   ├── 📄 state.py           # 全局应用上下文
-│   ├── 📂 api/               # REST API 路由
-│   │   ├── 📄 health.py      # 健康检查
-│   │   ├── 📄 download.py    # 下载接口
-│   │   ├── 📄 crawler.py     # 爬虫接口
-│   │   ├── 📄 cookie.py      # Cookie 接口
-│   │   ├── 📄 config.py      # 配置接口
-│   │   ├── 📄 bilibili.py    # B 站 API 接口（解析/播放流/主页/Cookie 测试）
-│   │   └── 📄 ws.py          # WebSocket 实时推送
-│   └── 📂 services/          # 业务服务层
-│
-├── 📂 frontend/              # Tauri + React 前端
-│   ├── 📂 src/               # 前端源码
-│   │   ├── 📂 components/    # UI 组件
-│   │   │   ├── 📂 ui/        # shadcn/ui 基础组件
-│   │   │   └── 📄 NavBar.tsx # 侧边导航栏
-│   │   ├── 📂 pages/         # 功能页面
-│   │   │   ├── 📄 DownloadPage.tsx
-│   │   │   ├── 📄 BatchFetchPage.tsx
-│   │   │   ├── 📄 ProfileFetchPage.tsx
-│   │   │   ├── 📄 CookiePage.tsx
-│   │   │   ├── 📄 BiliFetchPage.tsx  # B 站抓取页面
-│   │   │   ├── 📄 SettingsPage.tsx
-│   │   │   └── 📄 OnboardingPage.tsx
-│   │   ├── 📂 store/         # Zustand 状态管理
-│   │   ├── 📂 hooks/         # 自定义 Hooks
-│   │   ├── 📂 lib/           # 工具函数与 API 封装
-│   │   └── 📂 layouts/       # 布局组件
-│   ├── 📂 src-tauri/         # Tauri Rust 后端
-│   │   ├── 📂 src/
-│   │   │   └── 📄 lib.rs     # 托盘、命令、sidecar 启动
-│   │   ├── 📄 tauri.conf.json
-│   │   └── 📄 Cargo.toml
-│   └── 📄 package.json
-│
-├── 📂 app/                   # Python 数据层
-│   ├── 📄 config.py          # 全局常量与路径
-│   ├── 📄 database.py        # 数据库初始化
-│   ├── 📄 models.py          # 数据模型
-│   └── 📄 repositories.py    # 数据访问层
-│
-├── 📂 crawlers/              # 爬虫组件
-│   ├── 📂 signer/            # 签名算法（抖音）
-│   ├── 📂 bilibili/          # B 站爬虫模块
-│   │   ├── 📄 bili_signer.py       # WBI 签名 + buvid3 生成
-│   │   ├── 📄 bili_url_parser.py   # B 站链接解析
-│   │   ├── 📄 bili_http_client.py  # B 站 HTTP 客户端
-│   │   ├── 📄 bili_video_parser.py # B 站视频/播放流解析
-│   │   ├── 📄 bili_user_crawler.py # B 站用户空间抓取
-│   │   └── 📄 constants.py         # B 站 API 常量
-│   ├── 📄 http_client.py
-│   ├── 📄 url_parser.py
-│   ├── 📄 video_parser.py
-│   └── 📄 cookie_tester.py
-│
-├── 📂 downloader/            # 下载引擎
-│   ├── 📄 scheduler.py
-│   ├── 📄 downloader.py
-│   └── 📄 progress_reporter.py
-│
-├── 📂 docs/                  # 设计文档与里程碑计划
-├── 📂 tests/                 # Python 测试套件（734 项）
-│   ├── 📂 test_bilibili/     # B 站模块测试（79 项）
-│   │   ├── 📄 test_bilibili.py          # 爬虫单元测试（42 项）
-│   │   ├── 📄 test_bili_downloader_dash.py  # DASH 下载测试（7 项）
-│   │   └── 📄 test_bili_api.py          # 后端 API 测试（23 项）
-├── 📄 sidecar_launcher.py    # PyInstaller 入口脚本
-├── 📄 pyproject.toml
-├── 📄 installer.iss          # (旧) Inno Setup 安装脚本
-└── 📄 README.md              # 项目说明
+├── 📂 backend/            # FastAPI 后端（REST + WebSocket）
+│   ├── 📂 api/            #   路由：crawler / download / bilibili / cookie / config / ws
+│   └── 📄 app.py          #   入口与生命周期管理
+├── 📂 frontend/           # Tauri 2 + React 19 前端
+│   ├── 📂 src/            #   组件、页面（含 BiliFetchPage）、状态、API 封装
+│   └── 📂 src-tauri/      #   Rust 壳：托盘、窗口、sidecar 启动
+├── 📂 app/                # Python 数据层（SQLite、模型、仓库）
+├── 📂 crawlers/           # 爬虫引擎（signer 签名 + bilibili B 站模块）
+├── 📂 downloader/         # 下载引擎（调度、DASH 合并、进度上报）
+├── 📂 tests/              # Python 测试套件（734 项）
+└── 📄 pyproject.toml      # 项目元数据与依赖
 ```
 
 <br>
