@@ -219,6 +219,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     log.info("=== 关闭清理 ===")
     await ws_router._stop_shared_push()
     await ctx.scheduler.stop()
+    # 释放 B 站 HTTP 客户端连接池（v0.4.0）
+    if ctx.bili_http_client is not None:
+        with contextlib.suppress(Exception):
+            await ctx.bili_http_client.close()
     with contextlib.suppress(Exception):
         ctx.conn.close()
     for task in ctx._bg_tasks:
@@ -233,10 +237,19 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS：允许 Tauri 前端访问
+# CORS：仅允许受信任的前端来源访问（Tauri WebView 与本地 Vite 开发服务器）。
+# 不再使用通配符 + credentials（会导致任意网页可跨域调用本机 sidecar）。
+# 说明：本 sidecar 监听 127.0.0.1，配合来源白名单后，
+# 浏览器跨域请求（含写操作预检）会被 CORS 中间件拒绝。
+ALLOWED_ORIGINS: list[str] = [
+    "tauri://localhost",  # Tauri 2 macOS/移动端 WebView 来源
+    "http://tauri.localhost",  # Tauri 2 Windows/Linux WebView 来源
+    "https://tauri.localhost",
+    "http://localhost:1420",  # Vite 开发服务器
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

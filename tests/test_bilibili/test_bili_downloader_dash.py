@@ -208,3 +208,65 @@ class TestDownloadDash:
             mock_dash.assert_awaited_once()
             assert result is expected
             assert result.success is True
+
+    @pytest.mark.asyncio
+    async def test_download_dash_extension_forced_mp4(self, tmp_path: Path) -> None:
+        """DASH 流 URL 为 .m4s 时，最终合并输出强制为 .mp4。"""
+        dl, item = _make_dash_item(download_dir=str(tmp_path))
+        # item.url 为 https://cdn.example.com/video.m4s
+        with patch.object(dl, "_download_dash", new_callable=AsyncMock) as mock_dash:
+            mock_dash.return_value = DownloadResult(success=True, local_path="")
+            await dl.download(item)
+            called_final_path = mock_dash.await_args.args[1]
+            assert called_final_path.suffix == ".mp4"
+            assert called_final_path.name == "测试作者 - 测试视频.mp4"
+
+
+class TestBiliReferer:
+    """B 站 CDN 下载 Referer 区分测试（P1-6）。"""
+
+    def _make_item(self, bvid: str | None = None, audio_url: str = "") -> TaskItem:
+        """构造一个 B 站或抖音任务项。"""
+        conn = get_memory_connection()
+        task_repo = TaskRepository(conn)
+        task_id = task_repo.create(
+            Task(
+                id=None,
+                source_type="single",
+                source_url="https://www.bilibili.com/video/BV1xx",
+                status="pending",
+                total_items=1,
+                download_dir="/tmp/test",
+            )
+        )
+        item_repo = TaskItemRepository(conn)
+        item_id = item_repo.create(
+            TaskItem(
+                id=None,
+                task_id=task_id,
+                aweme_id="BV1xx",
+                bvid=bvid,
+                url="https://cdn.example.com/video.m4s",
+                audio_url=audio_url,
+                type="video",
+                title="测试视频",
+                author="测试作者",
+                status="pending",
+            )
+        )
+        return item_repo.get(item_id)  # type: ignore[return-value]
+
+    def test_bilibili_item_detected(self) -> None:
+        """带 bvid 或 audio_url 的任务项识别为 B 站。"""
+        dl = _make_downloader()
+        item = self._make_item(bvid="BV1xx", audio_url="https://cdn.example.com/audio.m4s")
+        assert dl._is_bilibili_item(item) is True
+        headers = dl._get_download_headers(item)
+        assert headers.get("Referer") == "https://www.bilibili.com/"
+
+    def test_non_bilibili_item_empty_headers(self) -> None:
+        """抖音任务项不附加 B 站 Referer。"""
+        dl = _make_downloader()
+        item = self._make_item(bvid=None, audio_url="")
+        assert dl._is_bilibili_item(item) is False
+        assert dl._get_download_headers(item) == {}

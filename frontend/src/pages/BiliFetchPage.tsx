@@ -1,5 +1,5 @@
 import { useState, useRef } from "react";
-import { Loader2, AlertCircle, Upload, FileText, Monitor } from "lucide-react";
+import { Loader2, AlertCircle, Upload, Monitor } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Textarea } from "../components/ui/textarea";
 import { Badge } from "../components/ui/badge";
@@ -31,6 +31,24 @@ function formatDuration(sec: number | undefined): string {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
+/** 全局自增 ID：跨批次解析保持唯一，避免选中集以数组位置为 key 导致错位/误删 */
+let nextItemId = 0;
+
+/** 从视频流列表中选择最高画质流（按带宽/分辨率降序取第一条） */
+function pickHighestQuality<T extends { bandwidth?: number; width?: number; height?: number }>(
+  streams: T[] | undefined,
+): T | undefined {
+  if (!streams || streams.length === 0) return undefined;
+  return [...streams].sort((a, b) => {
+    const ba = a.bandwidth ?? 0;
+    const bb = b.bandwidth ?? 0;
+    if (ba !== bb) return bb - ba;
+    const ha = a.height ?? 0;
+    const hb = b.height ?? 0;
+    return hb - ha;
+  })[0];
+}
+
 /** 从文本中提取 B 站链接（每行一条） */
 function extractBiliLinks(text: string): string[] {
   const lines = text.split(/[\n\r]+/);
@@ -48,7 +66,8 @@ function extractBiliLinks(text: string): string[] {
 }
 
 interface BiliParsedItem {
-  index: number;
+  /** 全局唯一 ID（跨批次不重复），用作选中集与列表 key */
+  id: number;
   url: string;
   bvid?: string;
   title: string;
@@ -60,8 +79,12 @@ interface BiliParsedItem {
   publishTime?: number;
   mid?: number;
   error?: string;
-  /** 用户选择的下载分 P（cid 列表），为空表示整条视频全部分 P */
-  selectedPages: number[];
+  /**
+   * 用户选择的下载分 P（cid 列表）。
+   * null = 尚未选择过（默认全选）；非空数组 = 仅下载勾选的 P；
+   * 空数组 = 用户已取消全部勾选（该条目不下载任何 P，与"全选"语义区分）。
+   */
+  selectedPages: number[] | null;
 }
 
 export default function BiliFetchPage() {
@@ -85,11 +108,10 @@ export default function BiliFetchPage() {
     }
     setLoading(true);
     setError(null);
-    setSelected(new Set());
     try {
       const raw = await api.biliParseUrls(urls);
       const mapped: BiliParsedItem[] = raw.map((r, i) => ({
-        index: i,
+        id: nextItemId++,
         url: urls[i] || r.url || "",
         bvid: r.bvid,
         title: r.title || "",
@@ -101,7 +123,8 @@ export default function BiliFetchPage() {
         publishTime: r.publish_time,
         mid: r.mid,
         error: r.error,
-        selectedPages: [],
+        // 多 P 默认全选；把默认选择显式存为全部 cid，空数组表示用户全部取消选择
+        selectedPages: r.pages && r.pages.length > 0 ? r.pages.map((p) => p.cid) : null,
       }));
       setResults((prev) => [...prev, ...mapped]);
       setLinks("");
@@ -131,15 +154,15 @@ export default function BiliFetchPage() {
 
   // === 选择 ===
 
-  const toggleSelect = (index: number) => {
+  const toggleSelect = (id: number) => {
     const next = new Set(selected);
-    if (next.has(index)) next.delete(index);
-    else next.add(index);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
     setSelected(next);
   };
 
   const toggleAll = () => {
-    const selectable = results.filter((r) => !r.error).map((r) => r.index);
+    const selectable = results.filter((r) => !r.error).map((r) => r.id);
     if (selectable.length > 0 && selected.size === selectable.length) {
       setSelected(new Set());
     } else {
@@ -148,11 +171,13 @@ export default function BiliFetchPage() {
   };
 
   /** 切换分 P 选择（多 P 视频可只下载部分分 P） */
-  const togglePage = (itemIndex: number, cid: number) => {
+  const togglePage = (itemId: number, cid: number) => {
     setResults((prev) =>
-      prev.map((item, i) => {
-        if (i !== itemIndex) return item;
-        const current = new Set(item.selectedPages);
+      prev.map((item) => {
+        if (item.id !== itemId) return item;
+        // null = 未选择（默认全选）→ 首次点击进入"仅选择部分 P"模式
+        // null 仅表示默认全选；首次点击应从全部已选中移除当前分 P
+        const current = new Set(item.selectedPages ?? item.pages.map((page) => page.cid));
         if (current.has(cid)) current.delete(cid);
         else current.add(cid);
         return { ...item, selectedPages: [...current] };
@@ -160,12 +185,19 @@ export default function BiliFetchPage() {
     );
   };
 
+  /** 该分 P 是否应被下载（null=默认全选；否则按勾选集合判断） */
+  const isPageSelected = (item: BiliParsedItem, cid: number): boolean => {
+    return item.selectedPages === null || item.selectedPages.includes(cid);
+  };
+
   // === 下载 ===
 
   const handleDownload = async () => {
     if (selected.size === 0) return;
-    const items = results.filter((_, i) => selected.has(i));
+    const items = results.filter((r) => !r.error && selected.has(r.id));
     setDownloading(true);
+    // 记录成功入队的条目 ID（至少有一个分 P 成功入队），仅移除这些，保留失败项
+    const succeededIds = new Set<number>();
     try {
       // 对每个选中项：解析分 P → 获取 playurl → 组装 startDownload items
       const downloadItems: {
@@ -188,25 +220,38 @@ export default function BiliFetchPage() {
           addToast(`${item.title || item.url} 缺少视频 ID，跳过`, "error");
           continue;
         }
-        // 确定要下载的分 P：用户勾选优先，未勾选时全部分 P（无分 P 时用空列表）
+        // 确定要下载的分 P：用户勾选优先，未选择时全部分 P（无分 P 时用空列表）
         const pages = item.pages.length > 0 ? item.pages : [{ cid: 0, page: 1, title: "", duration: 0 }];
+        const selectedPages = item.selectedPages; // 本地变量以便 TS 类型收窄
         const targetPages =
-          item.selectedPages.length > 0
-            ? pages.filter((p) => item.selectedPages.includes(p.cid))
+          selectedPages !== null
+            ? pages.filter((p) => selectedPages.includes(p.cid))
             : pages;
 
+        let successfulPages = 0;
+        let failedPages = 0;
         for (const page of targetPages) {
           try {
             const playurl = await api.biliPlayurl(item.bvid, page.cid || 0);
-            // DASH 格式：选最高画质视频流 + 首个音频流
+            // DASH 格式：选最高画质视频流 + 首个音频流；必须校验音频流存在
             if (playurl.dash && playurl.video_streams.length > 0) {
-              const video = playurl.video_streams[0];
-              const audio = playurl.audio_streams[0];
+              const video = pickHighestQuality(playurl.video_streams);
+              const audio = pickHighestQuality(playurl.audio_streams);
+              if (!video) {
+                failedPages += 1;
+                addToast(`${item.title} 无可用视频流`, "error");
+                continue;
+              }
+              if (!audio) {
+                failedPages += 1;
+                addToast(`${item.title} P${page.page} 无音频流，跳过（避免产出无声文件）`, "error");
+                continue;
+              }
               const pageSuffix = pages.length > 1 ? ` P${page.page}` : "";
               downloadItems.push({
                 url: video.url,
                 no_watermark_url: video.url,
-                audio_url: audio?.url || "",
+                audio_url: audio.url,
                 bvid: item.bvid,
                 cid: page.cid || 0,
                 page: page.page || 1,
@@ -216,6 +261,7 @@ export default function BiliFetchPage() {
                 aweme_id: item.bvid,
                 cover_url: item.coverUrl,
               });
+              successfulPages += 1;
             } else if (playurl.url) {
               // 非 DASH：单一 MP4
               const pageSuffix = pages.length > 1 ? ` P${page.page}` : "";
@@ -231,12 +277,19 @@ export default function BiliFetchPage() {
                 aweme_id: item.bvid,
                 cover_url: item.coverUrl,
               });
+              successfulPages += 1;
             } else {
-              addToast(`${item.title} 无可用播放流`, "error");
+              failedPages += 1;
+              addToast(`${item.title} P${page.page} 无可用播放流`, "error");
             }
           } catch (e) {
-            addToast(`${item.title} 获取播放流失败: ${e instanceof Error ? e.message : e}`, "error");
+            failedPages += 1;
+            addToast(`${item.title} P${page.page} 获取播放流失败: ${e instanceof Error ? e.message : e}`, "error");
           }
+        }
+        // 仅当该条目的所有目标分 P 都成功入队时移除；部分失败项保留以便重试
+        if (targetPages.length > 0 && successfulPages === targetPages.length && failedPages === 0) {
+          succeededIds.add(item.id);
         }
       }
 
@@ -251,10 +304,15 @@ export default function BiliFetchPage() {
         items: downloadItems,
       });
       addToast(`下载任务已创建（${downloadItems.length} 项）`, "success");
-      // 移除已入队项
-      const selectedIndices = new Set(items.map((i) => i.index));
-      setResults((prev) => prev.filter((_, i) => !selectedIndices.has(i)));
-      setSelected(new Set());
+      // 仅移除成功入队的条目，失败项保留供用户重试
+      if (succeededIds.size > 0) {
+        setResults((prev) => prev.filter((r) => !succeededIds.has(r.id)));
+        setSelected((prevSel) => {
+          const next = new Set(prevSel);
+          for (const id of succeededIds) next.delete(id);
+          return next;
+        });
+      }
     } catch (e) {
       addToast(e instanceof Error ? e.message : "下载入队失败", "error");
     } finally {
@@ -270,7 +328,8 @@ export default function BiliFetchPage() {
 
   const handleDeleteSelected = () => {
     if (selected.size === 0) return;
-    setResults((prev) => prev.filter((_, i) => !selected.has(i)));
+    const ids = new Set(selected);
+    setResults((prev) => prev.filter((r) => !ids.has(r.id)));
     setSelected(new Set());
     addToast(`已删除 ${selected.size} 项`, "success");
   };
@@ -281,7 +340,7 @@ export default function BiliFetchPage() {
       <div className="p-6 pb-0">
         <div className="flex gap-2">
           <Textarea
-            placeholder="在此粘贴 B 站视频链接（BV 号），每行一个&#10;例如：https://www.bilibili.com/video/BV1GJ411x7h"
+            placeholder="在此粘贴 B 站视频链接（BV 号 / av 号），每行一个&#10;例如：https://www.bilibili.com/video/BV1GJ411x7h"
             value={links}
             onChange={(e) => setLinks(e.target.value)}
             className="flex-1"
@@ -347,17 +406,17 @@ export default function BiliFetchPage() {
             </span>
           </div>
           <div className="flex-1 overflow-y-auto">
-            {results.map((item, i) => (
-              <div key={item.bvid || item.url || `item-${item.index}`}>
+            {results.map((item) => (
+              <div key={item.id}>
                 <div
-                  className={`flex items-center gap-3 px-6 py-2 border-b border-border-light hover:bg-bg-hover transition-colors cursor-pointer ${selected.has(i) ? "bg-bg-selected" : ""} ${item.error ? "opacity-60" : ""}`}
-                  onClick={() => !item.error && toggleSelect(i)}
+                  className={`flex items-center gap-3 px-6 py-2 border-b border-border-light hover:bg-bg-hover transition-colors cursor-pointer ${selected.has(item.id) ? "bg-bg-selected" : ""} ${item.error ? "opacity-60" : ""}`}
+                  onClick={() => !item.error && toggleSelect(item.id)}
                 >
                   <input
                     type="checkbox"
                     className="w-4 h-4 accent-purple-500 flex-shrink-0"
-                    checked={selected.has(i)}
-                    onChange={() => !item.error && toggleSelect(i)}
+                    checked={selected.has(item.id)}
+                    onChange={() => !item.error && toggleSelect(item.id)}
                     disabled={!!item.error}
                   />
                   <span className="w-5 flex-shrink-0" />
@@ -407,7 +466,7 @@ export default function BiliFetchPage() {
                     </div>
                     <div className="flex flex-wrap gap-2">
                       {item.pages.map((p) => {
-                        const checked = item.selectedPages.length === 0 || item.selectedPages.includes(p.cid);
+                        const checked = isPageSelected(item, p.cid);
                         return (
                           <label
                             key={p.cid}
@@ -418,7 +477,7 @@ export default function BiliFetchPage() {
                               type="checkbox"
                               className="w-3.5 h-3.5 accent-purple-500"
                               checked={checked}
-                              onChange={() => togglePage(i, p.cid)}
+                              onChange={() => togglePage(item.id, p.cid)}
                             />
                             P{p.page}
                             {p.title ? `: ${p.title.slice(0, 12)}` : ""}
@@ -474,7 +533,7 @@ export default function BiliFetchPage() {
             <div className="text-center">
               <Monitor size={48} className="mx-auto mb-3 opacity-50" />
               <p className="text-sm">粘贴 B 站视频链接后点击"开始解析"</p>
-              <p className="text-xs mt-2 opacity-60">支持 BV 号视频，多 P 视频可选择性下载</p>
+              <p className="text-xs mt-2 opacity-60">支持 BV / av 号视频，多 P 视频可选择性下载</p>
             </div>
           )}
         </div>

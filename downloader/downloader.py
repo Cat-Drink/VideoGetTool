@@ -392,17 +392,49 @@ class Downloader:
 
     # === 分片下载 ===
 
-    async def _get_file_size(self, url: str) -> int | None:
+    @staticmethod
+    def _is_bilibili_item(task_item: TaskItem) -> bool:
+        """判断任务项是否为 B 站下载（存在 bvid 或 DASH 音频流地址）。
+
+        B 站 CDN 要求 Referer 为 https://www.bilibili.com/，
+        与抖音 CDN（https://www.douyin.com/）不同，需区分请求头。
+
+        Args:
+            task_item: 任务项
+
+        Returns:
+            B 站任务项返回 True
+        """
+        return bool(task_item.bvid or task_item.audio_url)
+
+    def _get_download_headers(self, task_item: TaskItem) -> dict[str, str]:
+        """按任务项来源构造下载请求头（含 Referer）。
+
+        B 站 CDN 使用 bilibili.com Referer，其余（抖音等）使用默认头。
+        默认头来自 Scheduler 注入的 httpx 客户端（抖音 Referer）。
+
+        Args:
+            task_item: 任务项
+
+        Returns:
+            附加请求头字典
+        """
+        if self._is_bilibili_item(task_item):
+            return {"Referer": "https://www.bilibili.com/"}
+        return {}
+
+    async def _get_file_size(self, url: str, headers: dict[str, str] | None = None) -> int | None:
         """通过 HEAD 请求获取文件总大小。
 
         Args:
             url: 下载直链
+            headers: 附加请求头（如 B 站 Referer）
 
         Returns:
             文件总字节数，获取失败返回 None
         """
         try:
-            response = await self._http_client.head(url)
+            response = await self._http_client.head(url, headers=headers)
             if response.status_code == 200:
                 content_length = response.headers.get("Content-Length")
                 if content_length is not None:
@@ -467,6 +499,8 @@ class Downloader:
         url: str,
         final_path: Path,
         total_bytes: int,
+        headers: dict[str, str] | None = None,
+        report_progress: bool = True,
     ) -> DownloadResult:
         """分片并发下载大文件。
 
@@ -478,6 +512,9 @@ class Downloader:
             url: 下载直链
             final_path: 最终文件路径
             total_bytes: 文件总字节数
+            headers: 附加请求头（如 B 站 Referer）
+            report_progress: 是否上报字节级进度（False 时仅持久化，
+                不写入 ProgressReporter，避免覆盖外层更粗粒度的进度口径）
 
         Returns:
             下载结果
@@ -502,7 +539,8 @@ class Downloader:
                 nonlocal last_persist_time, last_persist_bytes
                 segment_progress[idx] += chunk_bytes
                 total_downloaded = sum(segment_progress)
-                self._progress_reporter.update(task_item.id, total_downloaded, total_bytes)
+                if report_progress:
+                    self._progress_reporter.update(task_item.id, total_downloaded, total_bytes)
                 now = time.monotonic()
                 if (
                     now - last_persist_time >= PERSIST_INTERVAL_SECONDS
@@ -524,7 +562,7 @@ class Downloader:
             async with sem:
                 start, end = segments[idx]
                 return await self._download_segment(
-                    url, part_paths[idx], start, end, make_chunk_callback(idx)
+                    url, part_paths[idx], start, end, make_chunk_callback(idx), headers=headers
                 )
 
         try:
@@ -622,6 +660,9 @@ class Downloader:
         # v0.4.0：B 站 DASH 格式（音视频分离）→ 走 DASH 合并流程
         if task_item.audio_url:
             final_path = self._get_final_path(task_item, task_item.url)
+            # DASH 流 URL 扩展名为 .m4s，最终合并输出强制为 .mp4
+            if final_path.suffix.lower() == ".m4s":
+                final_path = final_path.with_suffix(".mp4")
             final_path.parent.mkdir(parents=True, exist_ok=True)
             lock_key = str(final_path)
             lock = self._file_locks.setdefault(lock_key, asyncio.Lock())
@@ -695,6 +736,7 @@ class Downloader:
             "-i", str(video_path),
             "-i", str(audio_path),
             "-c", "copy",
+            "-f", "mp4",
             str(output_path),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -799,6 +841,8 @@ class Downloader:
 
         final_str = os.path.normpath(os.path.abspath(str(final_path)))
         self._mark_status(task_item.id, "completed", local_path=final_str)
+        # 合并完成：统一上报 100% 进度，避免 UI 进度条停留在视频流下载进度
+        self._progress_reporter.update(task_item.id, 100, 100, status="completed")
         logger.info("DASH 合并完成 task_item id=%s path=%s", task_item.id, final_str)
         return DownloadResult(success=True, local_path=final_str)
 
@@ -831,11 +875,18 @@ class Downloader:
         part_path = self._get_part_path(final_path)
         retry_count = task_item.retry_count
 
+        # 按来源区分请求头（B 站 CDN 需要 bilibili.com Referer）
+        source_headers = self._get_download_headers(task_item)
+
         # 大文件分片下载探测
-        file_size = await self._get_file_size(url)
+        file_size = await self._get_file_size(url, headers=source_headers or None)
         if file_size is not None and file_size >= LARGE_FILE_THRESHOLD and not part_path.exists():
             async with self._semaphore:
-                result = await self._download_segmented(task_item, url, final_path, file_size)
+                result = await self._download_segmented(
+                    task_item, url, final_path, file_size,
+                    headers=source_headers or None,
+                    report_progress=report_progress,
+                )
             if result.success or result.error != "FALLBACK_TO_SINGLE_STREAM":
                 return result
             # 回退到单流下载
@@ -846,8 +897,8 @@ class Downloader:
                 # 检查 .part 文件是否存在 → 读取已下载字节数（断点续传）
                 downloaded_bytes = part_path.stat().st_size if part_path.exists() else 0
 
-                # 构造 Range 请求头
-                headers: dict[str, str] = {}
+                # 构造请求头（来源 Referer + Range）
+                headers: dict[str, str] = dict(source_headers)
                 if downloaded_bytes > 0:
                     headers["Range"] = f"bytes={downloaded_bytes}-"
 
@@ -1018,6 +1069,7 @@ class Downloader:
         start: int,
         end: int,
         on_chunk: Callable[[int], None],
+        headers: dict[str, str] | None = None,
     ) -> int:
         """下载单个分片到 .part.{index} 文件。
 
@@ -1029,6 +1081,7 @@ class Downloader:
             start: 分片起始字节（包含）
             end: 分片结束字节（包含）
             on_chunk: 每接收一个数据块的回调，参数为本块字节数
+            headers: 附加请求头（如 B 站 Referer）
 
         Returns:
             该分片已下载的总字节数
@@ -1044,7 +1097,7 @@ class Downloader:
             downloaded = part_path.stat().st_size if part_path.exists() else 0
             segment_start = start + downloaded
 
-            headers: dict[str, str] = {}
+            headers = dict(headers or {})
             if downloaded > 0:
                 headers["Range"] = f"bytes={segment_start}-{end}"
             else:

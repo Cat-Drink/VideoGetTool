@@ -121,6 +121,10 @@ def api_client() -> TestClient:
     bili_signer.refresh_keys = AsyncMock(name="BiliSigner.refresh_keys")
     bili_user_crawler = MagicMock(name="BiliUserCrawler")
     bili_user_crawler.fetch_user_posts = MagicMock(name="BiliUserCrawler.fetch_user_posts")
+    bili_user_crawler.fetch_user_posts_with_meta = AsyncMock(
+        name="BiliUserCrawler.fetch_user_posts_with_meta",
+        return_value=([], False, 0),
+    )
 
     ctx.bili_url_parser = bili_url_parser
     ctx.bili_video_parser = bili_video_parser
@@ -180,6 +184,32 @@ class TestBiliParseRoute:
         assert len(data[0]["pages"]) == 2
         assert data[0]["pages"][0]["cid"] == 111
         assert data[0]["pages"][1]["page"] == 2
+
+    def test_parse_av_link_success(self, api_client: TestClient) -> None:
+        """av 号链接（只有 av_id 无 bvid）也能解析。"""
+        url = "https://www.bilibili.com/video/av170001"
+        parsed = BiliParsedURL(
+            type="video",
+            url=url,
+            bvid=None,
+            av_id=170001,
+            mid=None,
+            page=1,
+        )
+        ctx.bili_url_parser.parse.return_value = parsed
+        ctx.bili_video_parser.parse_video.return_value = _video_info("BV1xx411c7mD")
+
+        response = api_client.post("/api/bilibili/parse", json={"urls": [url]})
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["aid"] == 12345678
+        assert data[0]["title"] == "测试视频标题"
+        # av 链接应以 aid 传给解析器
+        ctx.bili_video_parser.parse_video.assert_awaited_once_with(
+            bvid=None, aid=170001, cookie=None
+        )
 
     def test_parse_user_home_success(self, api_client: TestClient) -> None:
         """解析用户主页链接成功。"""
@@ -241,7 +271,7 @@ class TestBiliParseRoute:
         assert data[1]["bvid"] == "BV1yy411c7mE"
 
     def test_parse_with_cookie(self, api_client: TestClient) -> None:
-        """传入 Cookie 时传递给 HTTP 客户端。"""
+        """传入 Cookie 时按每请求参数传递给解析器（不写入共享客户端）。"""
         url = "https://www.bilibili.com/video/BV1xx411c7mD"
         parsed = _parsed_video("BV1xx411c7mD")
         ctx.bili_url_parser.parse.return_value = parsed
@@ -253,7 +283,11 @@ class TestBiliParseRoute:
         )
 
         assert response.status_code == 200
-        ctx.bili_http_client.set_cookie.assert_called_once_with("buvid3=test; SESSDATA=test")
+        # Cookie 通过每请求参数传递，不再修改共享客户端状态
+        ctx.bili_http_client.set_cookie.assert_not_called()
+        ctx.bili_video_parser.parse_video.assert_awaited_once_with(
+            bvid="BV1xx411c7mD", aid=12345678, cookie="buvid3=test; SESSDATA=test"
+        )
 
     def test_parse_unrecognized_url(self, api_client: TestClient) -> None:
         """无法识别的 URL 返回错误信息。"""
@@ -369,9 +403,9 @@ class TestBiliPlayUrlRoute:
 class TestBiliFetchSpaceRoute:
     """B 站用户主页抓取路由测试。"""
 
-    def test_fetch_space_by_mid(self, api_client: TestClient) -> None:
-        """通过 mid 抓取用户主页成功。"""
-        posts = [
+    def _mock_posts(self):
+        """构造两个投稿条目。"""
+        return [
             MagicMock(
                 bvid="BV1aa",
                 aid=1001,
@@ -397,7 +431,11 @@ class TestBiliFetchSpaceRoute:
                 description="描述2",
             ),
         ]
-        ctx.bili_user_crawler.fetch_user_posts.return_value = _async_gen(*posts)
+
+    def test_fetch_space_by_mid(self, api_client: TestClient) -> None:
+        """通过 mid 抓取用户主页成功。"""
+        posts = self._mock_posts()
+        ctx.bili_user_crawler.fetch_user_posts_with_meta.return_value = (posts, False, 2)
 
         response = api_client.post(
             "/api/bilibili/fetch-space",
@@ -407,17 +445,23 @@ class TestBiliFetchSpaceRoute:
         assert response.status_code == 200
         data = response.json()
         assert len(data["items"]) == 2
-        assert data["has_more"] is False  # 2 < max_count(10)
-        assert data["items"][0]["bvid"] == "BV1aa"
-        assert data["items"][0]["title"] == "视频1"
-        assert data["items"][1]["bvid"] == "BV1bb"
+        assert data["has_more"] is False  # total=2 < max_count(10)
+        assert data["total"] == 2
+        # 前后端契约字段
+        item = data["items"][0]
+        assert item["bvid"] == "BV1aa"
+        assert item["title"] == "视频1"
+        assert item["url"] == "https://www.bilibili.com/video/BV1aa"
+        assert item["type"] == "video"
+        assert item["publish_time"] == 1700000000
+        assert item["duration"] == 120
 
     def test_fetch_space_by_url(self, api_client: TestClient) -> None:
         """通过 URL 解析 mid 后抓取成功。"""
         ctx.bili_url_parser.parse.return_value = _parsed_user_home(67890)
 
         posts = [MagicMock(bvid="BV1cc", aid=1003, title="视频3", author="UP主", cover_url="", duration=60, view_count=100, danmaku_count=5, pubdate=1700000002, description="描述3")]
-        ctx.bili_user_crawler.fetch_user_posts.return_value = _async_gen(*posts)
+        ctx.bili_user_crawler.fetch_user_posts_with_meta.return_value = (posts, True, 50)
 
         response = api_client.post(
             "/api/bilibili/fetch-space",
@@ -427,7 +471,22 @@ class TestBiliFetchSpaceRoute:
         assert response.status_code == 200
         data = response.json()
         assert len(data["items"]) == 1
-        assert data["has_more"] is True  # 1 >= max_count(1) 或 2 < 10 时 False
+        assert data["has_more"] is True
+        assert data["total"] == 50
+
+    def test_fetch_space_max_count_bounds(self, api_client: TestClient) -> None:
+        """max_count 超出边界时返回 422（Field ge/le 约束）。"""
+        response = api_client.post(
+            "/api/bilibili/fetch-space",
+            json={"url": "https://space.bilibili.com/12345", "mid": 12345, "max_count": 0},
+        )
+        assert response.status_code == 422
+
+        response = api_client.post(
+            "/api/bilibili/fetch-space",
+            json={"url": "https://space.bilibili.com/12345", "mid": 12345, "max_count": 101},
+        )
+        assert response.status_code == 422
 
     def test_fetch_space_no_mid_found(self, api_client: TestClient) -> None:
         """无法解析 mid 时返回 400。"""
@@ -444,7 +503,7 @@ class TestBiliFetchSpaceRoute:
 
     def test_fetch_space_api_error(self, api_client: TestClient) -> None:
         """B 站 API 错误时返回 400。"""
-        ctx.bili_user_crawler.fetch_user_posts.side_effect = BiliAPIError(
+        ctx.bili_user_crawler.fetch_user_posts_with_meta.side_effect = BiliAPIError(
             code=-412, message="被拦截"
         )
 
@@ -491,6 +550,13 @@ class TestBiliCookieTestRoute:
         assert data["nickname"] == "测试用户"
         assert data["message"] == ""
         ctx.bili_signer.refresh_keys.assert_called_once()
+        # Cookie 以每请求参数传递，不污染共享客户端
+        ctx.bili_http_client.set_cookie.assert_not_called()
+        ctx.bili_http_client.get_json.assert_awaited_with(
+            "https://api.bilibili.com/x/web-interface/nav",
+            signed=False,
+            cookie="buvid3=test; SESSDATA=valid",
+        )
 
     def test_cookie_test_invalid(self, api_client: TestClient) -> None:
         """失效 Cookie 返回未登录状态。"""

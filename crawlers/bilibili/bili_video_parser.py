@@ -157,12 +157,18 @@ class BiliVideoParser:
 
     # === 视频基本信息 ===
 
-    async def parse_video(self, bvid: str | None = None, aid: int | None = None) -> BiliVideoInfo:
+    async def parse_video(
+        self,
+        bvid: str | None = None,
+        aid: int | None = None,
+        cookie: str | None = None,
+    ) -> BiliVideoInfo:
         """调用 VIEW 接口获取视频基本信息。
 
         参数:
             bvid: B 站视频 BV 号（与 aid 二选一）。
             aid: 视频 av 号（与 bvid 二选一）。
+            cookie: 本次请求使用的 B 站 Cookie（可选），仅当前请求生效。
 
         返回:
             BiliVideoInfo 实例。
@@ -181,7 +187,7 @@ class BiliVideoParser:
             raise ValueError("bvid 和 aid 必须至少提供一个")
 
         # VIEW 接口不需要 WBI 签名
-        data = await self._http_client.get_json(VIEW_URL, params, signed=False)
+        data = await self._http_client.get_json(VIEW_URL, params, signed=False, cookie=cookie)
 
         if not data:
             raise VideoNotFoundError(f"B 站视频不存在: bvid={bvid}, aid={aid}")
@@ -265,6 +271,7 @@ class BiliVideoParser:
         bvid: str,
         cid: int,
         quality: int = DEFAULT_QUALITY,
+        cookie: str | None = None,
     ) -> BiliPlayUrl:
         """调用 PLAYURL 接口获取视频播放流地址。
 
@@ -275,6 +282,7 @@ class BiliVideoParser:
             bvid: B 站视频 BV 号。
             cid: 分 P 的 cid（通过 VIEW 接口获取）。
             quality: 请求的清晰度，默认 80（1080P）。
+            cookie: 本次请求使用的 B 站 Cookie（可选），仅当前请求生效。
 
         返回:
             BiliPlayUrl 实例。
@@ -292,7 +300,7 @@ class BiliVideoParser:
             "fourk": 1,  # 允许 4K
         }
 
-        data = await self._http_client.get_json(PLAYURL_URL, params, signed=True)
+        data = await self._http_client.get_json(PLAYURL_URL, params, signed=True, cookie=cookie)
 
         if not data:
             raise VideoNotFoundError(f"B 站播放流获取失败: bvid={bvid}, cid={cid}")

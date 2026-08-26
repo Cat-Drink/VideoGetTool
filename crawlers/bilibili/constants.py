@@ -43,12 +43,14 @@ SPACE_INFO_URL: str = f"{API_BASE_URL}/x/space/wbi/acc/info"
 # === 认证与签名接口 ===
 
 # WBI 密钥获取（无需签名）
-# 返回: {data: {img_key, sub_key}}
+# 返回: {data: {wbi_img: {img_url, sub_url}}}
+# 注意：密钥取自 img_url/sub_url 的文件 basename，而非 img_key/sub_key 字段
 WBI_INDEX_URL: str = f"{API_BASE_URL}/x/web-interface/wbi/index"
 
 # 登录状态检测（Cookie 测试用）
-# 返回: {data: {isLogin, uname}}
-NAV_URL: str = f"{WWW_BASE_URL}/x/web-interface/nav"
+# 返回: {data: {isLogin, uname, wbi_img: {img_url, sub_url}}}
+# 未登录（code=-101）时仍返回 data.wbi_img，可同时作为 WBI 密钥来源
+NAV_URL: str = f"{API_BASE_URL}/x/web-interface/nav"
 
 
 # === 请求头常量 ===

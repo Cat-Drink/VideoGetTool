@@ -247,14 +247,25 @@ export interface BiliParseResult {
   error?: string;
 }
 
+export interface BiliStreamInfo {
+  id: number;
+  url: string;
+  mime_type: string;
+  codecs: string;
+  width: number;
+  height: number;
+  /** 视频流码率（bps），用于选择最高画质 */
+  bandwidth: number;
+}
+
 export interface BiliPlayUrlResult {
   bvid: string;
   cid: number;
   quality: number;
   quality_name: string;
   dash: boolean;
-  video_streams: { id: number; url: string; mime_type: string; codecs: string; width: number; height: number }[];
-  audio_streams: { id: number; url: string; mime_type: string; codecs: string }[];
+  video_streams: BiliStreamInfo[];
+  audio_streams: BiliStreamInfo[];
   url: string;
   duration: number;
 }
@@ -273,7 +284,7 @@ export async function biliPlayurl(bvid: string, cid: number, quality: number = 8
   });
 }
 
-export async function biliFetchSpace(url: string, mid?: number, max_count: number = 50): Promise<{ items: BiliParseResult[]; has_more: boolean }> {
+export async function biliFetchSpace(url: string, mid?: number, max_count: number = 50): Promise<{ items: BiliParseResult[]; has_more: boolean; total?: number }> {
   return request("/bilibili/fetch-space", {
     method: "POST",
     body: JSON.stringify({ url, mid, max_count }),

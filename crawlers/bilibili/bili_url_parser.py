@@ -285,19 +285,25 @@ class BiliURLParser:
     async def _follow_redirect(self, url: str) -> str:
         """跟随短链重定向获取最终 URL。
 
-        使用 HEAD 请求获取 Location 头；HEAD 不可用时退枝到 GET（不读 body）。
+        使用 GET 跟随重定向；为防止 SSRF，落地 URL 的 host 必须属于
+        _BILI_DOMAINS 白名单，否则回退到原 URL（由上层解析器反馈失败）。
 
         参数:
             url: 短链 URL。
 
         返回:
-            最终 URL；跟随失败时返回原 URL。
+            最终 URL（host 校验通过）；校验失败或网络异常时返回原 URL。
         """
         if self._http_client is None:
             return url
         try:
             resp = await self._http_client.get(url, follow_redirects=True)
-            return str(resp.url)
+            final_url = str(resp.url)
+            final_host = (urlparse(final_url).hostname or "").lower()
+            if final_host not in _BILI_DOMAINS:
+                # 非 B 站域名（可能被重定向到内网/元数据地址），拒绝跟随
+                return url
+            return final_url
         except Exception:
             # 网络异常时返回原 URL，由上层解析器反馈失败
             return url

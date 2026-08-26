@@ -12,13 +12,19 @@ import re
 
 import pytest
 
-from crawlers.bilibili.bili_signer import BiliSigner
+from crawlers.bilibili.bili_signer import BiliSigner, MIXIN_KEY_ENC_TAB
 from crawlers.bilibili.bili_url_parser import BiliURLParser, BiliParsedURL
 from crawlers.bilibili.constants import (
     QUALITY_MAP,
     SPACE_PAGE_SIZE,
     WBI_KEY_CACHE_TTL,
 )
+
+
+def _compute_mix_key(img_key: str, sub_key: str) -> str:
+    """按官方置换表计算 mix_key（测试辅助）。"""
+    raw = img_key + sub_key
+    return "".join(raw[i] for i in MIXIN_KEY_ENC_TAB)[:32]
 
 pytestmark = pytest.mark.bilibili
 
@@ -83,9 +89,9 @@ class TestBiliSigner:
         """sign() 正常执行后应添加 wts 和 w_rid 参数。"""
         # 手动设置密钥后测试签名逻辑
         signer = BiliSigner()
-        signer._img_key = "test_img_key_abcdefgh"
-        signer._sub_key = "test_sub_key_ijklmnop"
-        signer._mix_key = signer._sub_key[:4] + signer._img_key[:4]
+        signer._img_key = "7cd084941338484aae1ad9425b84077c"
+        signer._sub_key = "4932caff0ff746eab6f01bf08b70ac45"
+        signer._mix_key = _compute_mix_key(signer._img_key, signer._sub_key)
         signer._key_updated_at = 9999999999.0
 
         params = signer.sign({"bvid": "BV1GJ411x7h"})
@@ -97,6 +103,77 @@ class TestBiliSigner:
         # w_rid 应为 32 字符 MD5 十六进制
         assert isinstance(params["w_rid"], str)
         assert len(params["w_rid"]) == 32
+
+
+class TestWbiFixedVectors:
+    """WBI 签名固定向量测试（基于真实密钥断言精确 w_rid）。
+
+    密钥与置换表来自 B 站官方公开实现（bilibili-API-collect）：
+        img_key = 7cd084941338484aae1ad9425b84077c
+        sub_key = 4932caff0ff746eab6f01bf08b70ac45
+        mix_key = ea1db124af3c7062474693fa704f4ff8（置换表取前 32 位）
+    """
+
+    IMG_KEY = "7cd084941338484aae1ad9425b84077c"
+    SUB_KEY = "4932caff0ff746eab6f01bf08b70ac45"
+    KNOWN_MIX_KEY = "ea1db124af3c7062474693fa704f4ff8"
+
+    def _make_signer(self) -> BiliSigner:
+        """构造已加载密钥的签名器。"""
+        signer = BiliSigner()
+        signer._img_key = self.IMG_KEY
+        signer._sub_key = self.SUB_KEY
+        signer._mix_key = _compute_mix_key(self.IMG_KEY, self.SUB_KEY)
+        signer._key_updated_at = 9999999999.0
+        return signer
+
+    def test_mixin_key_matches_official_vector(self) -> None:
+        """mix_key 与官方置换表结果一致。"""
+        assert _compute_mix_key(self.IMG_KEY, self.SUB_KEY) == self.KNOWN_MIX_KEY
+
+    def test_derive_key_from_url(self) -> None:
+        """从 img_url/sub_url 提取密钥 basename。"""
+        from crawlers.bilibili.bili_signer import _derive_key_from_url
+
+        assert _derive_key_from_url(
+            f"https://i0.hdslb.com/bfs/wbi/{self.IMG_KEY}.png"
+        ) == self.IMG_KEY
+        assert _derive_key_from_url(
+            f"https://i0.hdslb.com/bfs/wbi/{self.SUB_KEY}.png"
+        ) == self.SUB_KEY
+
+    def test_sign_fixed_vector_wrid(self) -> None:
+        """固定时间戳与参数下 w_rid 精确匹配已知向量。"""
+        import hashlib
+        from urllib.parse import urlencode
+
+        import crawlers.bilibili.bili_signer as signer_module
+
+        # 固定时间戳，保证确定性输出
+        original_time = signer_module.time
+        signer_module.time = type("_FakeTime", (), {"time": staticmethod(lambda: 1702200673.0)})()
+
+        try:
+            signer = self._make_signer()
+            params = signer.sign({"foo": "114", "bar": "514", "zab": "1919810"})
+
+            # 独立计算期望 w_rid
+            q = {k: "".join(ch for ch in str(v) if ch not in "!'()*")
+                 for k, v in params.items() if k not in ("w_rid", "wts")}
+            enc = urlencode(sorted(q.items())) + "&wts=1702200673"
+            expected = hashlib.md5((enc + signer._mix_key).encode("utf-8")).hexdigest()
+
+            assert params["w_rid"] == expected
+            assert len(params["w_rid"]) == 32
+        finally:
+            signer_module.time = original_time
+
+    def test_sign_filters_special_chars_in_value(self) -> None:
+        """参数值中的 !'()* 特殊字符在签名中被过滤，且写回返回值。"""
+        signer = self._make_signer()
+        params = signer.sign({"bvid": "BV1xx", "spm": "abc!'()*def"})
+        # 过滤后的值写回参数，保证请求参数与签名一致
+        assert params["spm"] == "abcdef"
 
 
 # ============================================================

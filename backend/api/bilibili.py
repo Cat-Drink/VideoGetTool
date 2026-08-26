@@ -5,8 +5,10 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from backend.state import ctx
 from crawlers.bilibili.bili_http_client import BiliAPIError
@@ -15,6 +17,12 @@ router = APIRouter()
 
 # 批量解析最大 URL 数量限制
 MAX_PARSE_URLS: int = 50
+
+# 批量解析并发上限（避免触发 B 站 -412 风控）
+PARSE_CONCURRENCY_LIMIT: int = 5
+
+# 用户主页抓取数量边界
+MAX_SPACE_COUNT: int = 100
 
 
 # === 请求/响应模型 ===
@@ -54,6 +62,7 @@ class BiliParseResult(BaseModel):
     publish_time: int | None = None
     tags: list[str] | None = None
     mid: int | None = None
+    type: str | None = None
     error: str | None = None
 
 
@@ -62,7 +71,7 @@ class BiliSpaceRequest(BaseModel):
 
     url: str
     mid: int | None = None
-    max_count: int = 50
+    max_count: int = Field(default=50, ge=1, le=100)
 
 
 class BiliPlayUrlRequest(BaseModel):
@@ -82,6 +91,7 @@ class BiliStreamResponse(BaseModel):
     codecs: str = ""
     width: int = 0
     height: int = 0
+    bandwidth: int = 0
 
 
 class BiliPlayUrlResult(BaseModel):
@@ -132,16 +142,16 @@ async def bili_parse_urls(req: BiliParseRequest):
             detail=f"批量解析最多 {MAX_PARSE_URLS} 个链接，当前 {len(req.urls)} 个",
         )
 
-    # 设置 Cookie（如果有）
-    if req.bilibili_cookie and ctx.bili_http_client is not None:
-        ctx.bili_http_client.set_cookie(req.bilibili_cookie)
+    cookie = req.bilibili_cookie or None
 
     async def _parse_one(url: str) -> BiliParseResult:
         try:
             parsed = await ctx.bili_url_parser.parse(url)
-            if parsed.type == "video" and parsed.bvid:
+            if parsed.type == "video" and (parsed.bvid or parsed.av_id):
                 try:
-                    info = await ctx.bili_video_parser.parse_video(bvid=parsed.bvid)
+                    info = await ctx.bili_video_parser.parse_video(
+                        bvid=parsed.bvid, aid=parsed.av_id, cookie=cookie
+                    )
                     return BiliParseResult(
                         url=url,
                         bvid=info.bvid,
@@ -157,18 +167,27 @@ async def bili_parse_urls(req: BiliParseRequest):
                         danmaku_count=info.danmaku_count,
                         publish_time=info.pubdate,
                         tags=info.tags,
+                        type="video",
                     )
                 except Exception as e:
-                    return BiliParseResult(url=url, bvid=parsed.bvid, error=f"视频信息获取失败: {e}")
+                    return BiliParseResult(
+                        url=url, bvid=parsed.bvid, aid=parsed.av_id, type="video", error=f"视频信息获取失败: {e}"
+                    )
             elif parsed.mid:
-                return BiliParseResult(url=url, mid=parsed.mid)
+                return BiliParseResult(url=url, mid=parsed.mid, type="user_home")
             else:
-                return BiliParseResult(url=url, bvid=parsed.bvid, error="无法识别的链接类型")
+                return BiliParseResult(url=url, bvid=parsed.bvid, type="video", error="无法识别的链接类型")
         except Exception as e:
             return BiliParseResult(url=url, error=str(e))
 
-    import asyncio
-    tasks = [asyncio.create_task(_parse_one(url)) for url in req.urls]
+    # 并发受限（PARSE_CONCURRENCY_LIMIT），避免批量解析触发 B 站风控
+    semaphore = asyncio.Semaphore(PARSE_CONCURRENCY_LIMIT)
+
+    async def _limited(url: str) -> BiliParseResult:
+        async with semaphore:
+            return await _parse_one(url)
+
+    tasks = [asyncio.create_task(_limited(url)) for url in req.urls]
     results = await asyncio.gather(*tasks)
     return results
 
@@ -194,11 +213,25 @@ async def bili_playurl(req: BiliPlayUrlRequest):
             quality_name=playurl.quality_name,
             dash=playurl.dash,
             video_streams=[
-                BiliStreamResponse(id=s.id, url=s.url, mime_type=s.mime_type, codecs=s.codecs, width=s.width, height=s.height)
+                BiliStreamResponse(
+                    id=s.id,
+                    url=s.url,
+                    mime_type=s.mime_type,
+                    codecs=s.codecs,
+                    width=s.width,
+                    height=s.height,
+                    bandwidth=s.bandwidth,
+                )
                 for s in playurl.video_streams
             ],
             audio_streams=[
-                BiliStreamResponse(id=s.id, url=s.url, mime_type=s.mime_type, codecs=s.codecs)
+                BiliStreamResponse(
+                    id=s.id,
+                    url=s.url,
+                    mime_type=s.mime_type,
+                    codecs=s.codecs,
+                    bandwidth=s.bandwidth,
+                )
                 for s in playurl.audio_streams
             ],
             url=playurl.url,
@@ -212,7 +245,11 @@ async def bili_playurl(req: BiliPlayUrlRequest):
 
 @router.post("/fetch-space", response_model=dict)
 async def bili_fetch_space(req: BiliSpaceRequest):
-    """抓取 B 站用户主页投稿列表。"""
+    """抓取 B 站用户主页投稿列表。
+
+    返回项与 BiliParseResult 契约一致（url / type / publish_time 等），
+    has_more / total 基于接口真实总数判断。
+    """
     if ctx.bili_user_crawler is None or ctx.bili_url_parser is None:
         raise HTTPException(status_code=503, detail="B 站服务未初始化")
 
@@ -226,9 +263,13 @@ async def bili_fetch_space(req: BiliSpaceRequest):
             else:
                 raise HTTPException(status_code=400, detail="无法从 URL 解析用户 ID")
 
-        items = []
-        async for post in ctx.bili_user_crawler.fetch_user_posts(mid, max_count=req.max_count):
-            items.append({
+        posts, has_more, total = await ctx.bili_user_crawler.fetch_user_posts_with_meta(
+            mid, max_count=req.max_count
+        )
+        items = [
+            {
+                "url": f"https://www.bilibili.com/video/{post.bvid}",
+                "type": "video",
                 "bvid": post.bvid,
                 "aid": post.aid,
                 "title": post.title,
@@ -237,10 +278,12 @@ async def bili_fetch_space(req: BiliSpaceRequest):
                 "duration": post.duration,
                 "view_count": post.view_count,
                 "danmaku_count": post.danmaku_count,
-                "pubdate": post.pubdate,
+                "publish_time": post.pubdate,
                 "description": post.description,
-            })
-        return {"items": items, "has_more": len(items) >= req.max_count}
+            }
+            for post in posts
+        ]
+        return {"items": items, "has_more": has_more, "total": total}
     except BiliAPIError as e:
         raise HTTPException(status_code=400, detail=f"B 站 API 错误: {e.message}")
     except HTTPException:
@@ -251,7 +294,10 @@ async def bili_fetch_space(req: BiliSpaceRequest):
 
 @router.post("/cookie-test", response_model=BiliCookieTestResult)
 async def bili_cookie_test(req: BiliCookieTestRequest):
-    """测试 B 站 Cookie 的有效性。"""
+    """测试 B 站 Cookie 的有效性。
+
+    Cookie 以每请求参数传入，不写入共享客户端，避免污染后续请求。
+    """
     if ctx.bili_http_client is None or ctx.bili_signer is None:
         raise HTTPException(status_code=503, detail="B 站服务未初始化")
 
@@ -260,9 +306,8 @@ async def bili_cookie_test(req: BiliCookieTestRequest):
     try:
         # 先刷新 WBI 密钥（首次使用需要）
         await ctx.bili_signer.refresh_keys(ctx.bili_http_client._client)
-        # 设置 Cookie 并发起 nav 请求检测登录状态
-        ctx.bili_http_client.set_cookie(req.cookie)
-        data = await ctx.bili_http_client.get_json(NAV_URL, signed=False)
+        # 携带测试 Cookie 发起 nav 请求检测登录状态（仅本次请求生效）
+        data = await ctx.bili_http_client.get_json(NAV_URL, signed=False, cookie=req.cookie)
         is_login = data.get("isLogin", False)
         uname = data.get("uname") or data.get("Uname") or (data.get("data") or {}).get("uname") if isinstance(data, dict) else None
         return BiliCookieTestResult(

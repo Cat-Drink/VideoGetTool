@@ -1,11 +1,11 @@
 """B 站 WBI 签名器 + buvid3 指纹生成器。
 
 WBI 签名是 B 站用于 API 鉴权的签名机制，替代旧版签名。算法：
-    1. 从 /x/web-interface/wbi/index 获取 img_key 和 sub_key
-    2. 混合密钥: mix_key = sub_key[:4] + img_key[:4]
-    3. 参数按 key 升序排列，拼接为 query string
-    4. w_rid = MD5(query_string + mix_key)
-    5. wts = 当前 Unix 时间戳
+    1. 从 /x/web-interface/nav（未登录 code=-101 时仍返回 data.wbi_img）获取
+       img_url / sub_url，取文件 basename 作为 img_key / sub_key
+    2. 混合密钥: mix_key = "".join((img_key + sub_key)[i] for i in MIXIN_KEY_ENC_TAB)[:32]
+    3. 参数过滤 '!'()*' 特殊字符，按 key 升序排序并 urlencode
+    4. w_rid = MD5(query_string + mix_key)；wts = 当前 Unix 时间戳
 
 buvid3 是 B 站客户端指纹，用于标识设备，需通过 Cookie 或请求头发送。
 
@@ -21,17 +21,35 @@ import random
 import string
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
+from pathlib import Path
+from urllib.parse import urlencode, urlparse
 
 import httpx
 
 from crawlers.bilibili.constants import (
     DEFAULT_HEADERS,
-    DEFAULT_USER_AGENT,
-    WBI_INDEX_URL,
+    NAV_URL,
     WBI_KEY_CACHE_TTL,
 )
 from crawlers.exceptions import SignError
+
+# B 站官方 WBI 混合密钥置换表（64 项，0~63）
+# 将 (img_key + sub_key) 按该表重排后取前 32 位作为 mix_key
+MIXIN_KEY_ENC_TAB: list[int] = [
+    46, 47, 18, 2, 53, 8, 23, 32, 15, 50, 10, 31, 58, 3, 45, 35, 27, 43, 5, 49,
+    33, 9, 42, 19, 29, 28, 14, 39, 12, 38, 41, 13, 37, 48, 7, 16, 24, 55, 40,
+    61, 26, 17, 0, 1, 60, 51, 30, 4, 22, 25, 54, 21, 56, 59, 6, 63, 57, 62, 11,
+    36, 20, 34, 44, 52,
+]
+
+# 签名时需从值中剔除的特殊字符（B 站官方 WBI 算法）
+_WBI_FILTER_CHARS: str = "!'()*"
+
+
+def _derive_key_from_url(url: str) -> str:
+    """从 wbi_img.img_url / sub_url 中提取文件 basename（不含扩展名）。"""
+    return Path(urlparse(url).path).stem
 
 
 class BiliSigner:
@@ -60,7 +78,7 @@ class BiliSigner:
         return elapsed >= WBI_KEY_CACHE_TTL
 
     async def refresh_keys(self, http_client: httpx.AsyncClient | None = None) -> None:
-        """从 /x/web-interface/wbi/index 刷新 WBI 密钥。
+        """从 /x/web-interface/nav 刷新 WBI 密钥。
 
         参数:
             http_client: httpx 异步客户端；为 None 时内部创建临时客户端。
@@ -77,22 +95,26 @@ class BiliSigner:
             close_client = True
 
         try:
-            resp = await http_client.get(WBI_INDEX_URL)
+            resp = await http_client.get(NAV_URL)
             resp.raise_for_status()
-            data = resp.json()
+            payload = resp.json()
 
-            if data.get("code") != 0:
-                raise SignError(f"WBI 密钥获取失败: {data.get('message', '未知错误')}")
+            # nav 未登录时 code=-101，但仍返回 data.wbi_img；此处只要求拿到密钥
+            wbi_img = (payload.get("data") or {}).get("wbi_img") or {}
+            img_url = wbi_img.get("img_url") or ""
+            sub_url = wbi_img.get("sub_url") or ""
 
-            wbi_img = data.get("data", {}).get("wbi_img", {})
-            self._img_key = wbi_img.get("img_key", "")
-            self._sub_key = wbi_img.get("sub_key", "")
+            if not img_url or not sub_url:
+                raise SignError("WBI 密钥响应中缺少 img_url 或 sub_url")
 
+            self._img_key = _derive_key_from_url(img_url)
+            self._sub_key = _derive_key_from_url(sub_url)
             if not self._img_key or not self._sub_key:
-                raise SignError("WBI 密钥响应中缺少 img_key 或 sub_key")
+                raise SignError("WBI 密钥响应中的 img_url/sub_url 无法解析出密钥")
 
-            # 混合密钥: sub_key[:4] + img_key[:4]
-            self._mix_key = self._sub_key[:4] + self._img_key[:4]
+            # 混合密钥: 按 MIXIN_KEY_ENC_TAB 置换后取前 32 位
+            raw = self._img_key + self._sub_key
+            self._mix_key = "".join(raw[i] for i in MIXIN_KEY_ENC_TAB)[:32]
             self._key_updated_at = time.time()
 
         except httpx.HTTPError as e:
@@ -131,14 +153,21 @@ class BiliSigner:
         wts = int(time.time())
         params["wts"] = wts
 
-        # 2. 按 key 升序排列
-        sorted_params = sorted(params.items(), key=lambda x: x[0])
+        # 2. 过滤 w_rid/wts 之外的参数值中的特殊字符 !'()*（官方算法）
+        #    同时把过滤后的值写回返回结果，保证请求参数与签名内容完全一致
+        query: dict[str, str] = {}
+        for k, v in params.items():
+            if k in ("w_rid", "wts"):
+                continue
+            filtered = "".join(ch for ch in str(v) if ch not in _WBI_FILTER_CHARS)
+            query[k] = filtered
+            params[k] = filtered
 
-        # 3. 拼接为 query string（不编码，保持原始值）
-        query_string = "&".join(f"{k}={v}" for k, v in sorted_params)
+        # 3. 按 key 升序排序 + urlencode
+        enc = urlencode(sorted(query.items()))
 
-        # 4. 计算 w_rid = MD5(query_string + mix_key)
-        sign_str = query_string + self._mix_key
+        # 4. 计算 w_rid = MD5(query_string + &wts= + mix_key)
+        sign_str = enc + f"&wts={wts}" + self._mix_key
         w_rid = hashlib.md5(sign_str.encode("utf-8")).hexdigest()
 
         params["w_rid"] = w_rid
@@ -156,7 +185,7 @@ class BiliSigner:
         其中:
             - X: 随机大写字母
             - Y: 随机大写字母
-            - timestamp: 当前时间 YYYYMMDDHHMMSS
+            - timestamp: 当前本地时间 YYYYMMDDHHMMSS（B 站按本地时间语义校验）
             - random_hex: 6 位随机十六进制
             - app_id: 固定值 (1)
             - device_id: UUID 的简短形式
@@ -165,7 +194,7 @@ class BiliSigner:
             buvid3 字符串（如 "XX20260825120000-ab12cd-1-uuidinfoc"）。
         """
         prefix = random.choice(string.ascii_uppercase) + random.choice(string.ascii_uppercase)
-        now = datetime.now(timezone.utc)
+        now = datetime.now()
         timestamp = now.strftime("%Y%m%d%H%M%S")
         rand_hex = format(random.randint(0, 0xFFFFFF), "06x")
         device_id = uuid.uuid4().hex[:8]

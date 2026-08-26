@@ -111,6 +111,7 @@ class BiliHttpClient:
         params: dict | None = None,
         signed: bool = True,
         additional_headers: dict[str, str] | None = None,
+        cookie: str | None = None,
     ) -> httpx.Response:
         """发起 GET 请求，返回原始 httpx.Response。
 
@@ -119,6 +120,8 @@ class BiliHttpClient:
             params: 业务请求参数；signed=True 时自动追加 WBI 签名。
             signed: 是否附加 WBI 签名（默认 True）。
             additional_headers: 附加请求头（需下载媒体流传 Referer 时使用）。
+            cookie: 本次请求使用的 B 站 Cookie（可选）。
+                传入时仅对当前请求生效，不修改共享客户端状态，避免并发互踩。
 
         返回:
             httpx.Response。
@@ -143,11 +146,12 @@ class BiliHttpClient:
         if additional_headers:
             headers.update(additional_headers)
 
-        # 步骤 3：携带 Cookie + buvid3
+        # 步骤 3：携带 Cookie + buvid3（优先使用每请求 Cookie，避免共享状态互踩）
+        effective_cookie = cookie if cookie is not None else self._cookie
         cookies = {}
-        if self._cookie:
+        if effective_cookie:
             # 解析 Cookie 字符串为键值（简单切分首个 =）
-            for part in self._cookie.split(";"):
+            for part in effective_cookie.split(";"):
                 part = part.strip()
                 if not part:
                     continue
@@ -171,6 +175,7 @@ class BiliHttpClient:
         url: str,
         params: dict | None = None,
         signed: bool = True,
+        cookie: str | None = None,
     ) -> dict:
         """发起 GET 并解析 JSON 响应。
 
@@ -178,6 +183,7 @@ class BiliHttpClient:
             url: 请求 URL。
             params: 业务请求参数。
             signed: 是否附加 WBI 签名。
+            cookie: 本次请求使用的 B 站 Cookie（可选），仅当前请求生效。
 
         返回:
             响应的 `data` 字段（dict）。
@@ -186,7 +192,7 @@ class BiliHttpClient:
             BiliAPIError: code != 0 的业务错误。
             CookieInvalidError / RateLimitedError / NetworkError: 见 get_raw()。
         """
-        response = await self.get_raw(url, params, signed=signed)
+        response = await self.get_raw(url, params, signed=signed, cookie=cookie)
         try:
             payload = response.json()
         except ValueError as e:
