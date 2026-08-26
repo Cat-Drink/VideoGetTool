@@ -13,20 +13,20 @@
 
   <p align="center">
     <a href="https://github.com/Cat-Drink/VideoGetTool/releases">
-      <img src="https://img.shields.io/github/v/release/Cat-Drink/VideoGetTool?style=flat-square&label=版本&color=7C3AED" alt="版本">
+      <img src="https://img.shields.io/github/v/release/Cat-Drink/VideoGetTool?style=flat-square&label=%E7%89%88%E6%9C%AC&color=7C3AED" alt="版本">
     </a>
     <img src="https://img.shields.io/badge/Python-3.11+-4B8BBE?style=flat-square&logo=python&logoColor=white" alt="Python">
     <img src="https://img.shields.io/badge/UI-Tauri%20%2F%20React-41CD52?style=flat-square&logo=react&logoColor=white" alt="Tauri React">
     <a href="LICENSE">
-      <img src="https://img.shields.io/badge/许可证-Apache%202.0-EB9E5C?style=flat-square" alt="Apache 2.0">
+      <img src="https://img.shields.io/badge/%E8%AE%B8%E5%8F%AF%E8%AF%81-Apache%202.0-EB9E5C?style=flat-square" alt="Apache 2.0">
     </a>
-    <img src="https://img.shields.io/badge/平台-Windows-0078D4?style=flat-square&logo=windows&logoColor=white" alt="Windows">
+    <img src="https://img.shields.io/badge/%E5%B9%B3%E5%8F%B0-Windows-0078D4?style=flat-square&logo=windows&logoColor=white" alt="Windows">
   </p>
 
   <p align="center">
-    <img src="https://img.shields.io/badge/✅%20测试-734%20passing-22C55E?style=flat-square" alt="tests">
-    <img src="https://img.shields.io/badge/📐%20覆盖率-85.68%25-3B82F6?style=flat-square" alt="coverage">
-    <img src="https://img.shields.io/badge/📦%20构建-Tauri%20%2B%20PyInstaller-FF6B35?style=flat-square" alt="build">
+    <img src="https://img.shields.io/badge/%E2%9C%85%20%E6%B5%8B%E8%AF%95-734%20passing-22C55E?style=flat-square" alt="tests">
+    <img src="https://img.shields.io/badge/%F0%9F%93%90%20%E8%A6%86%E7%9B%96%E7%8E%87-85.68%25-3B82F6?style=flat-square" alt="coverage">
+    <img src="https://img.shields.io/badge/%F0%9F%93%A6%20%E6%9E%84%E5%BB%BA-Tauri%20%2B%20PyInstaller-FF6B35?style=flat-square" alt="build">
   </p>
 
   <br>

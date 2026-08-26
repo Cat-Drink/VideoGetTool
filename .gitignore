@@ -59,3 +59,7 @@ logs/
 
 # 会话快照（ZCode 环境初始化产物）
 launch_snapshot.txt
+
+# DSH 视觉工具临时产物
+.dsh-vision-router/
+.dsh-vision-toolkit/
