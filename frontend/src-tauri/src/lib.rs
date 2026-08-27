@@ -1,9 +1,10 @@
 use std::sync::Mutex;
 
 use tauri::{
+    include_image,
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
-    Manager, include_image,
+    Manager,
 };
 use tauri_plugin_shell::process::CommandChild;
 use tauri_plugin_shell::ShellExt;
@@ -27,7 +28,7 @@ fn open_link(url: String) -> Result<(), String> {
 /// 获取应用版本号
 #[tauri::command]
 fn get_app_version() -> String {
-    "0.3.3".to_string()
+    "0.4.0".to_string()
 }
 
 /// 播放本地 .wav 文件（Windows 原生 PlaySoundW，异步非阻塞播放）
@@ -102,15 +103,17 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_websocket::init())
-        .plugin(tauri_plugin_window_state::Builder::new()
-            .with_state_flags(
-                StateFlags::SIZE
-                    | StateFlags::POSITION
-                    | StateFlags::MAXIMIZED
-                    | StateFlags::VISIBLE
-                    | StateFlags::FULLSCREEN,
-            )
-            .build())
+        .plugin(
+            tauri_plugin_window_state::Builder::new()
+                .with_state_flags(
+                    StateFlags::SIZE
+                        | StateFlags::POSITION
+                        | StateFlags::MAXIMIZED
+                        | StateFlags::VISIBLE
+                        | StateFlags::FULLSCREEN,
+                )
+                .build(),
+        )
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
@@ -131,26 +134,26 @@ pub fn run() {
                 .icon(icon)
                 .menu(&menu)
                 .tooltip("VideoGetTool")
-                .on_menu_event(|app, event| {
-                    match event.id.as_ref() {
-                        "show" => {
-                            if let Some(window) = app.get_webview_window("main") {
-                                let _ = window.show();
-                                let _ = window.set_focus();
-                            }
+                .on_menu_event(|app, event| match event.id.as_ref() {
+                    "show" => {
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
                         }
-                        "quit" => {
-                            app.exit(0);
-                        }
-                        _ => {}
                     }
+                    "quit" => {
+                        app.exit(0);
+                    }
+                    _ => {}
                 })
                 .build(app)?;
 
-            let sidecar_command = app.shell().sidecar("backend-sidecar")
+            let sidecar_command = app
+                .shell()
+                .sidecar("backend-sidecar")
                 .map_err(|e| e.to_string())?;
             let (mut _rx, child) = sidecar_command
-                .args(&["--host", "127.0.0.1", "--port", "18989"])
+                .args(["--host", "127.0.0.1", "--port", "18989"])
                 .spawn()
                 .map_err(|e| e.to_string())?;
             app.manage(SidecarChild(Mutex::new(Some(child))));

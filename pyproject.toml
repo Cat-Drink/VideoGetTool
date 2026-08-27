@@ -1,6 +1,6 @@
 [project]
 name = "video-get-tool"
-version = "0.3.3"
+version = "0.4.0"
 description = "抖音短视频（含图文、长视频）数据抓取的 Windows 桌面端应用"
 authors = [{ name = "VideoGetTool Contributors" }]
 # v0.3.0 起：项目协议由 MIT 切换为 Apache License 2.0
@@ -26,6 +26,7 @@ select = ["E", "F", "W", "I", "UP", "B", "SIM"]
 "tests/*" = ["S101"]  # 测试中允许 assert
 "*.spec" = ["F821", "UP009"]  # PyInstaller spec 文件的全局变量与编码声明
 "backend/app.py" = ["E402"]  # 需先 sys.path.insert 再 import（PyInstaller sidecar 打包要求）
+"app/repositories.py" = ["SIM118"]  # sqlite3.Row 不是 dict，key in row.keys() 检查列名而非值
 
 [tool.black]
 line-length = 100
@@ -40,6 +41,8 @@ markers = [
     "integration: 集成测试（需真实 Cookie，CI 默认跳过）",
     "full_chain: 全链路集成测试（从 URL 解析到文件下载）",
     "slow: 耗时较长的性能测试（可选运行）",
+    "bilibili: B 站（Bilibili）爬虫模块测试（crawlers/bilibili/）",
+    "url_parser: URL 解析器模块测试（crawlers/url_parser.py）",
 ]
 
 [tool.coverage.run]

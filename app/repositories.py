@@ -34,6 +34,24 @@ def _row_to_task(row: sqlite3.Row) -> Task:
     )
 
 
+def _row_get(row: sqlite3.Row, key: str, default=None):
+    """安全读取 sqlite3.Row 列值，列不存在时返回默认值。
+
+    兼容旧表（迁移前部分列可能缺失）的功能。
+
+    Args:
+        row: sqlite3.Row 实例
+        key: 列名
+        default: 列不存在时的默认值
+
+    Returns:
+        列值或默认值。
+    """
+    if key in row.keys():
+        return row[key]
+    return default
+
+
 def _row_to_task_item(row: sqlite3.Row) -> TaskItem:
     """将 sqlite3.Row 映射为 TaskItem 实例。"""
     return TaskItem(
@@ -56,6 +74,12 @@ def _row_to_task_item(row: sqlite3.Row) -> TaskItem:
         local_path=row["local_path"],
         selected_image_indices=row["selected_image_indices"],
         item_types=row["item_types"],
+        # v0.4.0：B 站字段，兼容旧表（用 _row_get 判断列是否存在）
+        bvid=_row_get(row, "bvid"),
+        cid=_row_get(row, "cid"),
+        page=_row_get(row, "page") or 0,
+        audio_url=_row_get(row, "audio_url") or "",
+        dash_merged=_row_get(row, "dash_merged") or "",
         created_at=row["created_at"],
         updated_at=row["updated_at"],
     )
@@ -222,8 +246,11 @@ class TaskItemRepository:
                     (task_id, aweme_id, url, title, author, author_sec_id,
                      type, duration, image_count, cover_url, status,
                      downloaded_bytes, total_bytes, retry_count, fail_reason,
-                     local_path, selected_image_indices, item_types, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     local_path, selected_image_indices, item_types,
+                     bvid, cid, page, audio_url, dash_merged,
+                     created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                        ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     item.task_id,
@@ -244,6 +271,11 @@ class TaskItemRepository:
                     item.local_path,
                     item.selected_image_indices,
                     item.item_types,
+                    item.bvid,
+                    item.cid,
+                    item.page,
+                    item.audio_url,
+                    item.dash_merged,
                     created_at,
                     updated_at,
                 ),
@@ -399,8 +431,21 @@ class TaskItemRepository:
         """
         with self._conn:
             self._conn.execute(
-                "UPDATE task_items SET selected_image_indices = ?, updated_at = ? " "WHERE id = ?",
+                "UPDATE task_items SET selected_image_indices = ?, updated_at = ? WHERE id = ?",
                 (selected_image_indices, now_iso(), item_id),
+            )
+
+    def update_dash_merged(self, item_id: int, merged: bool = True) -> None:
+        """标记 DASH 音视频流是否已合并完成（v0.4.0）。
+
+        Args:
+            item_id: 任务项 id
+            merged: True 置 '1'（已合并），False 置 ''（未合并）
+        """
+        with self._conn:
+            self._conn.execute(
+                "UPDATE task_items SET dash_merged = ?, updated_at = ? WHERE id = ?",
+                ("1" if merged else "", now_iso(), item_id),
             )
 
     def delete(self, item_id: int) -> None:

@@ -26,6 +26,7 @@ from app import config, database
 from app.logger import get_logger, setup_logger
 from backend.api import config as config_router
 from backend.api import cookie as cookie_router
+from backend.api import covers as covers_router
 from backend.api import crawler as crawler_router
 from backend.api import download as download_router
 from backend.api import health as health_router
@@ -76,6 +77,22 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     ctx.video_parser = VideoParser(ctx.http_client, ctx.signer)
     ctx.user_home_crawler = UserHomeCrawler(ctx.http_client, ctx.signer)
     ctx.cookie_tester = CookieTester(ctx.http_client, ctx.signer)
+
+    # 4.5. B 站爬虫层组件（v0.4.0）
+    from crawlers.bilibili import (
+        BiliHttpClient,
+        BiliSigner,
+        BiliURLParser,
+        BiliUserCrawler,
+        BiliVideoParser,
+    )
+
+    ctx.bili_signer = BiliSigner()
+    ctx.bili_http_client = BiliHttpClient(ctx.bili_signer)
+    ctx.bili_url_parser = BiliURLParser(http_client=ctx.bili_http_client.client)
+    ctx.bili_video_parser = BiliVideoParser(ctx.bili_http_client, ctx.bili_signer)
+    ctx.bili_user_crawler = BiliUserCrawler(ctx.bili_http_client, ctx.bili_signer)
+    log.info("B 站爬虫层组件已初始化")
 
     # 5. 下载调度器
     from downloader.scheduler import Scheduler
@@ -209,6 +226,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     log.info("=== 关闭清理 ===")
     await ws_router._stop_shared_push()
     await ctx.scheduler.stop()
+    # 释放 B 站 HTTP 客户端连接池（v0.4.0）
+    if ctx.bili_http_client is not None:
+        with contextlib.suppress(Exception):
+            await ctx.bili_http_client.close()
     with contextlib.suppress(Exception):
         ctx.conn.close()
     for task in ctx._bg_tasks:
@@ -219,14 +240,23 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 # ===== FastAPI 应用 =====
 app = FastAPI(
     title="VideoGetTool Python Sidecar",
-    version="0.3.3",
+    version="0.4.0",
     lifespan=lifespan,
 )
 
-# CORS：允许 Tauri 前端访问
+# CORS：仅允许受信任的前端来源访问（Tauri WebView 与本地 Vite 开发服务器）。
+# 不再使用通配符 + credentials（会导致任意网页可跨域调用本机 sidecar）。
+# 说明：本 sidecar 监听 127.0.0.1，配合来源白名单后，
+# 浏览器跨域请求（含写操作预检）会被 CORS 中间件拒绝。
+ALLOWED_ORIGINS: list[str] = [
+    "tauri://localhost",  # Tauri 2 macOS/移动端 WebView 来源
+    "http://tauri.localhost",  # Tauri 2 Windows/Linux WebView 来源
+    "https://tauri.localhost",
+    "http://localhost:1420",  # Vite 开发服务器
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -239,6 +269,11 @@ app.include_router(crawler_router.router, prefix="/api/crawler", tags=["crawler"
 app.include_router(cookie_router.router, prefix="/api/cookie", tags=["cookie"])
 app.include_router(config_router.router, prefix="/api/config", tags=["config"])
 app.include_router(ws_router.router, prefix="/api", tags=["ws"])
+app.include_router(covers_router.router, prefix="/api", tags=["covers"])
+# v0.4.0：B 站路由
+from backend.api import bilibili as bilibili_router
+
+app.include_router(bilibili_router.router, prefix="/api/bilibili", tags=["bilibili"])
 
 
 if __name__ == "__main__":
