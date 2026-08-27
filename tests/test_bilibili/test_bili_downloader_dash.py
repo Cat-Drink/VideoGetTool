@@ -97,15 +97,21 @@ class TestFindFfmpeg:
         """未注入且 resources 与 PATH 均无 ffmpeg 时返回 None。"""
         dl = _make_downloader(ffmpeg_path=None)
         from downloader.downloader import Path as DPath
-        with patch("shutil.which", return_value=None), patch.object(DPath, "exists", return_value=False):
+
+        with (
+            patch("shutil.which", return_value=None),
+            patch.object(DPath, "exists", return_value=False),
+        ):
             assert dl._find_ffmpeg() is None
 
     def test_system_path_fallback(self) -> None:
         """系统 PATH 中存在 ffmpeg 时返回其路径。"""
         dl = _make_downloader(ffmpeg_path=None)
         from downloader.downloader import Path as DPath
-        with patch("shutil.which", return_value="C:/bin/ffmpeg.exe"), patch.object(
-            DPath, "exists", return_value=False
+
+        with (
+            patch("shutil.which", return_value="C:/bin/ffmpeg.exe"),
+            patch.object(DPath, "exists", return_value=False),
         ):
             assert dl._find_ffmpeg() == "C:/bin/ffmpeg.exe"
 
@@ -114,9 +120,7 @@ class TestDownloadDash:
     """_download_dash 合并流程测试。"""
 
     @pytest.mark.asyncio
-    async def test_dash_success_merges_and_marks_completed(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_dash_success_merges_and_marks_completed(self, tmp_path: Path) -> None:
         """双流下载成功 + ffmpeg 合并成功 → status=completed、返回成功。"""
         dl, item = _make_dash_item(download_dir=str(tmp_path))
         final_path = tmp_path / "测试作者 - 测试视频.mp4"
@@ -130,9 +134,10 @@ class TestDownloadDash:
             Path(str(final_path)).write_bytes(b"stream")
             return video_result if "video" in str(final_path) else audio_result
 
-        with patch.object(dl, "_download_single_file", side_effect=fake_download_single_file), patch.object(
-            dl, "_merge_dash_streams", new_callable=AsyncMock
-        ) as mock_merge:
+        with (
+            patch.object(dl, "_download_single_file", side_effect=fake_download_single_file),
+            patch.object(dl, "_merge_dash_streams", new_callable=AsyncMock) as mock_merge,
+        ):
             result = await dl._download_dash(item, final_path)
 
         assert result.success is True
@@ -160,9 +165,10 @@ class TestDownloadDash:
             Path(str(final_path)).write_bytes(b"audio")
             return DownloadResult(success=True, local_path=str(final_path))
 
-        with patch.object(dl, "_download_single_file", side_effect=fake_download_single_file), patch.object(
-            dl, "_merge_dash_streams", new_callable=AsyncMock
-        ) as mock_merge:
+        with (
+            patch.object(dl, "_download_single_file", side_effect=fake_download_single_file),
+            patch.object(dl, "_merge_dash_streams", new_callable=AsyncMock) as mock_merge,
+        ):
             result = await dl._download_dash(item, final_path)
 
         assert result.success is False
@@ -183,8 +189,14 @@ class TestDownloadDash:
             Path(str(final_path)).write_bytes(b"stream")
             return DownloadResult(success=True, local_path=str(final_path))
 
-        with patch.object(dl, "_download_single_file", side_effect=fake_download_single_file), patch.object(
-            dl, "_merge_dash_streams", new_callable=AsyncMock, side_effect=RuntimeError("ffmpeg 未找到")
+        with (
+            patch.object(dl, "_download_single_file", side_effect=fake_download_single_file),
+            patch.object(
+                dl,
+                "_merge_dash_streams",
+                new_callable=AsyncMock,
+                side_effect=RuntimeError("ffmpeg 未找到"),
+            ),
         ):
             result = await dl._download_dash(item, final_path)
 
@@ -203,7 +215,9 @@ class TestDownloadDash:
         """download() 对带 audio_url 的任务项走 DASH 流程。"""
         dl, item = _make_dash_item(download_dir=str(tmp_path))
         expected = DownloadResult(success=True, local_path=str(tmp_path / "test.mp4"))
-        with patch.object(dl, "_download_dash", new_callable=AsyncMock, return_value=expected) as mock_dash:
+        with patch.object(
+            dl, "_download_dash", new_callable=AsyncMock, return_value=expected
+        ) as mock_dash:
             result = await dl.download(item)
             mock_dash.assert_awaited_once()
             assert result is expected

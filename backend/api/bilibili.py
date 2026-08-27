@@ -80,6 +80,9 @@ class BiliPlayUrlRequest(BaseModel):
     bvid: str
     cid: int
     quality: int = 80
+    cookie: str | None = None
+    # True=强制使用请求携带的 cookie；False=未传时回退到已保存的 B 站 Cookie
+    use_saved_cookie: bool = True
 
 
 class BiliStreamResponse(BaseModel):
@@ -162,7 +165,12 @@ async def bili_parse_urls(req: BiliParseRequest):
                         cover_url=info.cover_url,
                         duration=info.duration,
                         description=info.description,
-                        pages=[BiliPageResponse(cid=p.cid, page=p.page, title=p.title, duration=p.duration) for p in info.pages],
+                        pages=[
+                            BiliPageResponse(
+                                cid=p.cid, page=p.page, title=p.title, duration=p.duration
+                            )
+                            for p in info.pages
+                        ],
                         view_count=info.view_count,
                         danmaku_count=info.danmaku_count,
                         publish_time=info.pubdate,
@@ -171,12 +179,18 @@ async def bili_parse_urls(req: BiliParseRequest):
                     )
                 except Exception as e:
                     return BiliParseResult(
-                        url=url, bvid=parsed.bvid, aid=parsed.av_id, type="video", error=f"视频信息获取失败: {e}"
+                        url=url,
+                        bvid=parsed.bvid,
+                        aid=parsed.av_id,
+                        type="video",
+                        error=f"视频信息获取失败: {e}",
                     )
             elif parsed.mid:
                 return BiliParseResult(url=url, mid=parsed.mid, type="user_home")
             else:
-                return BiliParseResult(url=url, bvid=parsed.bvid, type="video", error="无法识别的链接类型")
+                return BiliParseResult(
+                    url=url, bvid=parsed.bvid, type="video", error="无法识别的链接类型"
+                )
         except Exception as e:
             return BiliParseResult(url=url, error=str(e))
 
@@ -198,13 +212,22 @@ async def bili_playurl(req: BiliPlayUrlRequest):
 
     需要 WBI 签名。高质量视频返回 DASH 格式（音视频分离），
     低质量视频可能返回单一 MP4 直链。
+
+    Cookie 解析优先级：
+        1. 请求显式传入的 cookie（req.cookie）
+        2. 未传时回退到已保存的 B 站 Cookie（config.bilibili_cookie）
+        3. 都没有 → 匿名请求（B 站通常只返回最高 720P）
     """
     if ctx.bili_video_parser is None:
         raise HTTPException(status_code=503, detail="B 站服务未初始化")
 
+    cookie = req.cookie or None
+    if not cookie and req.use_saved_cookie and ctx.config_repo is not None:
+        cookie = ctx.config_repo.get("bilibili_cookie") or None
+
     try:
         playurl = await ctx.bili_video_parser.parse_playurl(
-            bvid=req.bvid, cid=req.cid, quality=req.quality
+            bvid=req.bvid, cid=req.cid, quality=req.quality, cookie=cookie
         )
         return BiliPlayUrlResult(
             bvid=playurl.bvid,
@@ -238,9 +261,9 @@ async def bili_playurl(req: BiliPlayUrlRequest):
             duration=playurl.duration,
         )
     except BiliAPIError as e:
-        raise HTTPException(status_code=400, detail=f"B 站 API 错误: {e.message}")
+        raise HTTPException(status_code=400, detail=f"B 站 API 错误: {e.message}") from e
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"播放流获取失败: {e}")
+        raise HTTPException(status_code=500, detail=f"播放流获取失败: {e}") from e
 
 
 @router.post("/fetch-space", response_model=dict)
@@ -285,11 +308,11 @@ async def bili_fetch_space(req: BiliSpaceRequest):
         ]
         return {"items": items, "has_more": has_more, "total": total}
     except BiliAPIError as e:
-        raise HTTPException(status_code=400, detail=f"B 站 API 错误: {e.message}")
+        raise HTTPException(status_code=400, detail=f"B 站 API 错误: {e.message}") from e
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"主页抓取失败: {e}")
+        raise HTTPException(status_code=500, detail=f"主页抓取失败: {e}") from e
 
 
 @router.post("/cookie-test", response_model=BiliCookieTestResult)
@@ -309,7 +332,11 @@ async def bili_cookie_test(req: BiliCookieTestRequest):
         # 携带测试 Cookie 发起 nav 请求检测登录状态（仅本次请求生效）
         data = await ctx.bili_http_client.get_json(NAV_URL, signed=False, cookie=req.cookie)
         is_login = data.get("isLogin", False)
-        uname = data.get("uname") or data.get("Uname") or (data.get("data") or {}).get("uname") if isinstance(data, dict) else None
+        uname = (
+            data.get("uname") or data.get("Uname") or (data.get("data") or {}).get("uname")
+            if isinstance(data, dict)
+            else None
+        )
         return BiliCookieTestResult(
             valid=is_login,
             nickname=uname,
@@ -319,3 +346,91 @@ async def bili_cookie_test(req: BiliCookieTestRequest):
         return BiliCookieTestResult(valid=False, message=f"接口错误: {e.message}")
     except Exception as e:
         return BiliCookieTestResult(valid=False, message=f"测试失败: {e}")
+
+
+# === B 站 Cookie 持久化管理 ===
+
+
+class BiliCookieGetResponse(BaseModel):
+    """B 站 Cookie 查询响应。"""
+
+    has_cookie: bool
+    # Cookie 前缀（仅显示前 4 位，用于确认已设置）
+    cookie_prefix: str = ""
+    # 上次测试状态（null 表示未测试过或已清除）
+    last_valid: bool | None = None
+    last_nickname: str | None = None
+
+
+class BiliCookieSetRequest(BaseModel):
+    """B 站 Cookie 设置请求。"""
+
+    cookie: str
+    # 保存后是否自动执行测试
+    test: bool = True
+
+
+@router.get("/cookie", response_model=BiliCookieGetResponse)
+async def bili_get_cookie():
+    """获取已保存的 B 站 Cookie 信息（不返回完整 Cookie）。"""
+    if ctx.config_repo is None:
+        raise HTTPException(status_code=503, detail="服务未初始化")
+    saved = ctx.config_repo.get("bilibili_cookie") or ""
+    has = bool(saved)
+    valid_str = ctx.config_repo.get("bilibili_cookie_valid") or ""
+    last_valid = True if valid_str == "1" else False if valid_str == "0" else None
+    nickname = ctx.config_repo.get("bilibili_cookie_nickname") or None
+    return BiliCookieGetResponse(
+        has_cookie=has,
+        cookie_prefix=saved[:4] if has else "",
+        last_valid=last_valid,
+        last_nickname=nickname,
+    )
+
+
+class BiliCookieSetResponse(BaseModel):
+    """B 站 Cookie 设置响应。"""
+
+    saved: bool
+    message: str = ""
+    test_result: BiliCookieTestResult | None = None
+
+
+@router.post("/cookie", response_model=BiliCookieSetResponse)
+async def bili_set_cookie(req: BiliCookieSetRequest):
+    """保存 B 站 Cookie 到本地配置，可选测试有效性。"""
+    if ctx.config_repo is None:
+        raise HTTPException(status_code=503, detail="服务未初始化")
+
+    ctx.config_repo.set("bilibili_cookie", req.cookie.strip())
+    ctx.config_repo.set("bilibili_cookie_valid", "")
+    ctx.config_repo.set("bilibili_cookie_nickname", "")
+
+    test_result = None
+    if req.test:
+        # 复用 cookie-test 逻辑
+        tester = BiliCookieTestRequest(cookie=req.cookie)
+        test_result = await bili_cookie_test(tester)
+        if test_result.valid:
+            ctx.config_repo.set("bilibili_cookie_valid", "1")
+            if test_result.nickname:
+                ctx.config_repo.set("bilibili_cookie_nickname", test_result.nickname)
+        else:
+            ctx.config_repo.set("bilibili_cookie_valid", "0")
+
+    return BiliCookieSetResponse(
+        saved=True,
+        message="Cookie 已保存",
+        test_result=test_result,
+    )
+
+
+@router.delete("/cookie", response_model=dict)
+async def bili_delete_cookie():
+    """清除已保存的 B 站 Cookie。"""
+    if ctx.config_repo is None:
+        raise HTTPException(status_code=503, detail="服务未初始化")
+    ctx.config_repo.delete("bilibili_cookie")
+    ctx.config_repo.delete("bilibili_cookie_valid")
+    ctx.config_repo.delete("bilibili_cookie_nickname")
+    return {"message": "B 站 Cookie 已清除"}

@@ -290,10 +290,15 @@ export async function biliParseUrls(urls: string[], bilibili_cookie?: string): P
   });
 }
 
-export async function biliPlayurl(bvid: string, cid: number, quality: number = 80): Promise<BiliPlayUrlResult> {
+export async function biliPlayurl(
+  bvid: string,
+  cid: number,
+  quality: number = 80,
+  cookie?: string,
+): Promise<BiliPlayUrlResult> {
   return request("/bilibili/playurl", {
     method: "POST",
-    body: JSON.stringify({ bvid, cid, quality }),
+    body: JSON.stringify({ bvid, cid, quality, cookie }),
   });
 }
 
@@ -309,4 +314,30 @@ export async function biliCookieTest(cookie: string): Promise<{ valid: boolean; 
     method: "POST",
     body: JSON.stringify({ cookie }),
   });
+}
+
+export interface BiliCookieInfo {
+  has_cookie: boolean;
+  cookie_prefix: string;
+  last_valid: boolean | null;
+  last_nickname: string | null;
+}
+
+export async function biliGetCookie(): Promise<BiliCookieInfo> {
+  return request("/bilibili/cookie");
+}
+
+export async function biliSetCookie(cookie: string, test: boolean = true): Promise<{
+  saved: boolean;
+  message: string;
+  test_result: { valid: boolean; nickname: string | null; message: string } | null;
+}> {
+  return request("/bilibili/cookie", {
+    method: "POST",
+    body: JSON.stringify({ cookie, test }),
+  });
+}
+
+export async function biliClearCookie(): Promise<{ message: string }> {
+  return request("/bilibili/cookie", { method: "DELETE" });
 }

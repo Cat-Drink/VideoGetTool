@@ -23,9 +23,9 @@ def test_sync_version_integration(tmp_path: Path) -> None:
         text=True,
         timeout=30,
     )
-    assert result.returncode == 0, (
-        f"sync_version.py check 失败\n" f"stdout:\n{result.stdout}\n" f"stderr:\n{result.stderr}"
-    )
+    assert (
+        result.returncode == 0
+    ), f"sync_version.py check 失败\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
     # 检查输出中是否包含所有 6 个文件的版本号报告
     assert "all versions consistent" in result.stdout, f"版本号不一致:\n{result.stdout}"
     assert "[OK]" in result.stdout, f"输出缺少成功标记:\n{result.stdout}"

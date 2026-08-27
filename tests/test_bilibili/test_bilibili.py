@@ -12,8 +12,8 @@ import re
 
 import pytest
 
-from crawlers.bilibili.bili_signer import BiliSigner, MIXIN_KEY_ENC_TAB
-from crawlers.bilibili.bili_url_parser import BiliURLParser, BiliParsedURL
+from crawlers.bilibili.bili_signer import MIXIN_KEY_ENC_TAB, BiliSigner
+from crawlers.bilibili.bili_url_parser import BiliURLParser
 from crawlers.bilibili.constants import (
     QUALITY_MAP,
     SPACE_PAGE_SIZE,
@@ -25,6 +25,7 @@ def _compute_mix_key(img_key: str, sub_key: str) -> str:
     """按官方置换表计算 mix_key（测试辅助）。"""
     raw = img_key + sub_key
     return "".join(raw[i] for i in MIXIN_KEY_ENC_TAB)[:32]
+
 
 pytestmark = pytest.mark.bilibili
 
@@ -73,6 +74,7 @@ class TestBiliSigner:
         """未加载密钥时调用 sign() 抛出 SignError。"""
         signer = BiliSigner()
         from crawlers.exceptions import SignError
+
         with pytest.raises(SignError, match="密钥未加载"):
             signer.sign({"bvid": "BV1xx"})
 
@@ -135,12 +137,12 @@ class TestWbiFixedVectors:
         """从 img_url/sub_url 提取密钥 basename。"""
         from crawlers.bilibili.bili_signer import _derive_key_from_url
 
-        assert _derive_key_from_url(
-            f"https://i0.hdslb.com/bfs/wbi/{self.IMG_KEY}.png"
-        ) == self.IMG_KEY
-        assert _derive_key_from_url(
-            f"https://i0.hdslb.com/bfs/wbi/{self.SUB_KEY}.png"
-        ) == self.SUB_KEY
+        assert (
+            _derive_key_from_url(f"https://i0.hdslb.com/bfs/wbi/{self.IMG_KEY}.png") == self.IMG_KEY
+        )
+        assert (
+            _derive_key_from_url(f"https://i0.hdslb.com/bfs/wbi/{self.SUB_KEY}.png") == self.SUB_KEY
+        )
 
     def test_sign_fixed_vector_wrid(self) -> None:
         """固定时间戳与参数下 w_rid 精确匹配已知向量。"""
@@ -158,8 +160,11 @@ class TestWbiFixedVectors:
             params = signer.sign({"foo": "114", "bar": "514", "zab": "1919810"})
 
             # 独立计算期望 w_rid
-            q = {k: "".join(ch for ch in str(v) if ch not in "!'()*")
-                 for k, v in params.items() if k not in ("w_rid", "wts")}
+            q = {
+                k: "".join(ch for ch in str(v) if ch not in "!'()*")
+                for k, v in params.items()
+                if k not in ("w_rid", "wts")
+            }
             enc = urlencode(sorted(q.items())) + "&wts=1702200673"
             expected = hashlib.md5((enc + signer._mix_key).encode("utf-8")).hexdigest()
 
@@ -300,6 +305,7 @@ class TestBiliURLParser:
     def test_identify_type_invalid(self) -> None:
         """无法识别的 URL 抛出异常。"""
         from crawlers.exceptions import InvalidURLFormatError
+
         with pytest.raises(InvalidURLFormatError):
             self.parser.identify_type("https://example.com/")
 
@@ -359,6 +365,7 @@ class TestBiliURLParser:
     async def test_parse_no_url(self) -> None:
         """无 URL 的文本抛出异常。"""
         from crawlers.exceptions import InvalidURLFormatError
+
         with pytest.raises(InvalidURLFormatError):
             await self.parser.parse("今天天气真好")
 

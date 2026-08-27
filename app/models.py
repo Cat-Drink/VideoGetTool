@@ -112,11 +112,11 @@ class TaskItem:
     # v0.2.x：逐项媒体类型（JSON 数组，如 '["image","video","image"]'；空字符串表示全为静态图片）
     item_types: str = ""
     # v0.4.0：B 站支持专用字段
-    bvid: str | None = None          # B 站视频 BV 号
-    cid: int | None = None           # 分 P 的 cid（多 P 时区分）
-    page: int = 0                    # 分 P 序号（0 表示不分 P）
-    audio_url: str = ""              # DASH 音频流 URL（B 站 DASH 格式）
-    dash_merged: str = ""            # DASH 音频流是否已合并（'' 未合并 / '1' 已合并）
+    bvid: str | None = None  # B 站视频 BV 号
+    cid: int | None = None  # 分 P 的 cid（多 P 时区分）
+    page: int = 0  # 分 P 序号（0 表示不分 P）
+    audio_url: str = ""  # DASH 音频流 URL（B 站 DASH 格式）
+    dash_merged: str = ""  # DASH 音频流是否已合并（'' 未合并 / '1' 已合并）
     created_at: str = ""
     updated_at: str = ""
 

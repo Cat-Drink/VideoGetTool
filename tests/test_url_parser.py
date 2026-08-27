@@ -67,7 +67,7 @@ class TestExtractUrl:
 
     def test_extract_url_multi_links_returns_first(self, url_parser: URLParser) -> None:
         """多链接文本 → 返回第一个抖音链接。"""
-        text = "第一 https://v.douyin.com/Aaa111/ " "第二 https://www.douyin.com/video/123"
+        text = "第一 https://v.douyin.com/Aaa111/ 第二 https://www.douyin.com/video/123"
         assert url_parser.extract_url(text) == "https://v.douyin.com/Aaa111/"
 
     def test_extract_url_no_link_returns_none(self, url_parser: URLParser) -> None:
@@ -152,7 +152,7 @@ class TestExtractShortUrls:
 
     def test_extract_short_urls_multi_line(self, url_parser: URLParser) -> None:
         """多行文本 → 提取所有行的短链。"""
-        text = "https://v.douyin.com/Aaa111/\n" "描述行无链接\n" "https://v.douyin.com/Bbb222/\n"
+        text = "https://v.douyin.com/Aaa111/\n描述行无链接\nhttps://v.douyin.com/Bbb222/\n"
         assert url_parser.extract_short_urls(text) == [
             "https://v.douyin.com/Aaa111/",
             "https://v.douyin.com/Bbb222/",
@@ -185,9 +185,7 @@ class TestExtractShortUrls:
     def test_extract_short_urls_preserves_order(self, url_parser: URLParser) -> None:
         """多个短链按出现顺序返回。"""
         text = (
-            "https://v.douyin.com/ZZZ999/ "
-            "https://v.douyin.com/Aaa111/ "
-            "https://v.douyin.com/Mmm555/"
+            "https://v.douyin.com/ZZZ999/ https://v.douyin.com/Aaa111/ https://v.douyin.com/Mmm555/"
         )
         result = url_parser.extract_short_urls(text)
         assert result == [

@@ -12,7 +12,6 @@ from backend.state import ctx
 from crawlers.bilibili.bili_http_client import BiliAPIError
 from crawlers.bilibili.bili_url_parser import BiliParsedURL
 
-
 # === 测试用数据构造 ===
 
 
@@ -71,10 +70,22 @@ def _playurl_result(bvid: str = "BV1xx411c7mD") -> MagicMock:
         quality_name="1080P",
         dash=True,
         video_streams=[
-            MagicMock(id=1, url="https://upos-bilibili.com/video.mp4", mime_type="video/mp4", codecs="avc1.64001F", width=1920, height=1080),
+            MagicMock(
+                id=1,
+                url="https://upos-bilibili.com/video.mp4",
+                mime_type="video/mp4",
+                codecs="avc1.64001F",
+                width=1920,
+                height=1080,
+            ),
         ],
         audio_streams=[
-            MagicMock(id=2, url="https://upos-bilibili.com/audio.m4a", mime_type="audio/mp4", codecs="mp4a.40.2"),
+            MagicMock(
+                id=2,
+                url="https://upos-bilibili.com/audio.m4a",
+                mime_type="audio/mp4",
+                codecs="mp4a.40.2",
+            ),
         ],
         url="",
         duration=300,
@@ -104,7 +115,14 @@ def api_client() -> TestClient:
     """创建只挂载 bilibili router 的 TestClient，并隔离全局上下文。"""
     from backend.api.bilibili import router
 
-    ctx_fields = ("bili_url_parser", "bili_video_parser", "bili_http_client", "bili_signer", "bili_user_crawler")
+    ctx_fields = (
+        "bili_url_parser",
+        "bili_video_parser",
+        "bili_http_client",
+        "bili_signer",
+        "bili_user_crawler",
+        "config_repo",
+    )
     previous = {field: getattr(ctx, field) for field in ctx_fields}
 
     # 创建 Mock 组件
@@ -112,7 +130,9 @@ def api_client() -> TestClient:
     bili_url_parser.parse = AsyncMock(name="BiliURLParser.parse")
     bili_video_parser = MagicMock(name="BiliVideoParser")
     bili_video_parser.parse_video = AsyncMock(name="BiliVideoParser.parse_video")
-    bili_video_parser.parse_playurl = AsyncMock(name="BiliVideoParser.parse_playurl")
+    bili_video_parser.parse_playurl = AsyncMock(
+        name="BiliVideoParser.parse_playurl", return_value=_playurl_result()
+    )
     bili_http_client = MagicMock(name="BiliHttpClient")
     bili_http_client.get_json = AsyncMock(name="BiliHttpClient.get_json")
     bili_http_client.set_cookie = MagicMock(name="BiliHttpClient.set_cookie")
@@ -126,11 +146,19 @@ def api_client() -> TestClient:
         return_value=([], False, 0),
     )
 
+    # 简单内存 config_repo
+    config_store = {}
+    config_repo = MagicMock(name="ConfigRepository")
+    config_repo.get = MagicMock(side_effect=lambda k: config_store.get(k))
+    config_repo.set = MagicMock(side_effect=lambda k, v: config_store.__setitem__(k, v))
+    config_repo.delete = MagicMock(side_effect=lambda k: config_store.pop(k, None))
+
     ctx.bili_url_parser = bili_url_parser
     ctx.bili_video_parser = bili_video_parser
     ctx.bili_http_client = bili_http_client
     ctx.bili_signer = bili_signer
     ctx.bili_user_crawler = bili_user_crawler
+    ctx.config_repo = config_repo
 
     app = FastAPI()
     app.include_router(router, prefix="/api/bilibili")
@@ -144,9 +172,11 @@ def api_client() -> TestClient:
 
 def _async_gen(*items):
     """辅助函数：返回异步生成器，用于 mock 异步生成器方法。"""
+
     async def _gen():
         for item in items:
             yield item
+
     return _gen()
 
 
@@ -313,7 +343,9 @@ class TestBiliParseRoute:
         ctx.bili_url_parser = None
         ctx.bili_video_parser = None
 
-        response = api_client.post("/api/bilibili/parse", json={"urls": ["https://www.bilibili.com/video/BV1xx411c7mD"]})
+        response = api_client.post(
+            "/api/bilibili/parse", json={"urls": ["https://www.bilibili.com/video/BV1xx411c7mD"]}
+        )
 
         assert response.status_code == 503
         assert "B 站服务未初始化" in response.json()["detail"]
@@ -460,7 +492,20 @@ class TestBiliFetchSpaceRoute:
         """通过 URL 解析 mid 后抓取成功。"""
         ctx.bili_url_parser.parse.return_value = _parsed_user_home(67890)
 
-        posts = [MagicMock(bvid="BV1cc", aid=1003, title="视频3", author="UP主", cover_url="", duration=60, view_count=100, danmaku_count=5, pubdate=1700000002, description="描述3")]
+        posts = [
+            MagicMock(
+                bvid="BV1cc",
+                aid=1003,
+                title="视频3",
+                author="UP主",
+                cover_url="",
+                duration=60,
+                view_count=100,
+                danmaku_count=5,
+                pubdate=1700000002,
+                description="描述3",
+            )
+        ]
         ctx.bili_user_crawler.fetch_user_posts_with_meta.return_value = (posts, True, 50)
 
         response = api_client.post(
@@ -490,7 +535,9 @@ class TestBiliFetchSpaceRoute:
 
     def test_fetch_space_no_mid_found(self, api_client: TestClient) -> None:
         """无法解析 mid 时返回 400。"""
-        parsed = BiliParsedURL(type="video", url="https://example.com", bvid=None, av_id=None, mid=None, page=1)
+        parsed = BiliParsedURL(
+            type="video", url="https://example.com", bvid=None, av_id=None, mid=None, page=1
+        )
         ctx.bili_url_parser.parse.return_value = parsed
 
         response = api_client.post(
@@ -577,9 +624,7 @@ class TestBiliCookieTestRoute:
 
     def test_cookie_test_api_error(self, api_client: TestClient) -> None:
         """接口错误时返回 valid=False。"""
-        ctx.bili_http_client.get_json.side_effect = BiliAPIError(
-            code=-403, message="禁止访问"
-        )
+        ctx.bili_http_client.get_json.side_effect = BiliAPIError(code=-403, message="禁止访问")
 
         response = api_client.post(
             "/api/bilibili/cookie-test",
@@ -617,3 +662,66 @@ class TestBiliCookieTestRoute:
 
         assert response.status_code == 503
         assert "B 站服务未初始化" in response.json()["detail"]
+
+    def test_playurl_passes_explicit_cookie(self, api_client: TestClient) -> None:
+        """显式传入 cookie 时，透传至 parse_playurl。"""
+        response = api_client.post(
+            "/api/bilibili/playurl",
+            json={
+                "bvid": "BV1xx411c7mD",
+                "cid": 12345678,
+                "quality": 80,
+                "cookie": "SESSDATA=custom",
+            },
+        )
+        assert response.status_code == 200
+        ctx.bili_video_parser.parse_playurl.assert_called_once_with(
+            bvid="BV1xx411c7mD", cid=12345678, quality=80, cookie="SESSDATA=custom"
+        )
+
+    def test_playurl_fallback_saved_cookie(self, api_client: TestClient) -> None:
+        """未显式传 cookie 时回退到 config 中的 B 站 cookie。"""
+        ctx.config_repo.set("bilibili_cookie", "SESSDATA=saved")
+        try:
+            response = api_client.post(
+                "/api/bilibili/playurl",
+                json={"bvid": "BV1xx411c7mD", "cid": 12345678, "quality": 80},
+            )
+            assert response.status_code == 200
+            ctx.bili_video_parser.parse_playurl.assert_called_once_with(
+                bvid="BV1xx411c7mD", cid=12345678, quality=80, cookie="SESSDATA=saved"
+            )
+        finally:
+            ctx.config_repo.delete("bilibili_cookie")
+
+    def test_cookie_management_crud(self, api_client: TestClient) -> None:
+        """B 站 Cookie 查询、保存（不测试）、清除全流程。"""
+        # 1. 初始应无 Cookie
+        res = api_client.get("/api/bilibili/cookie")
+        assert res.status_code == 200
+        assert res.json()["has_cookie"] is False
+
+        # 2. 保存（test=False 跳过网络测试）
+        res = api_client.post(
+            "/api/bilibili/cookie",
+            json={"cookie": "SESSDATA=testval123", "test": False},
+        )
+        assert res.status_code == 200
+        assert res.json()["saved"] is True
+
+        # 3. 再次查询应存在
+        res = api_client.get("/api/bilibili/cookie")
+        assert res.status_code == 200
+        data = res.json()
+        assert data["has_cookie"] is True
+        assert data["cookie_prefix"] == "SESS"
+
+        # 4. 清除
+        res = api_client.delete("/api/bilibili/cookie")
+        assert res.status_code == 200
+        assert "已清除" in res.json()["message"]
+
+        # 5. 再次查询应恢复无 Cookie
+        res = api_client.get("/api/bilibili/cookie")
+        assert res.status_code == 200
+        assert res.json()["has_cookie"] is False

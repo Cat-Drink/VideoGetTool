@@ -431,7 +431,7 @@ class TaskItemRepository:
         """
         with self._conn:
             self._conn.execute(
-                "UPDATE task_items SET selected_image_indices = ?, updated_at = ? " "WHERE id = ?",
+                "UPDATE task_items SET selected_image_indices = ?, updated_at = ? WHERE id = ?",
                 (selected_image_indices, now_iso(), item_id),
             )
 

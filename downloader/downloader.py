@@ -733,10 +733,14 @@ class Downloader:
         proc = await asyncio.create_subprocess_exec(
             ffmpeg,
             "-y",
-            "-i", str(video_path),
-            "-i", str(audio_path),
-            "-c", "copy",
-            "-f", "mp4",
+            "-i",
+            str(video_path),
+            "-i",
+            str(audio_path),
+            "-c",
+            "copy",
+            "-f",
+            "mp4",
             str(output_path),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -883,7 +887,10 @@ class Downloader:
         if file_size is not None and file_size >= LARGE_FILE_THRESHOLD and not part_path.exists():
             async with self._semaphore:
                 result = await self._download_segmented(
-                    task_item, url, final_path, file_size,
+                    task_item,
+                    url,
+                    final_path,
+                    file_size,
                     headers=source_headers or None,
                     report_progress=report_progress,
                 )

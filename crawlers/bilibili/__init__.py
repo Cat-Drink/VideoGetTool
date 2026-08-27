@@ -4,7 +4,13 @@
 
 使用方式::
 
-    from crawlers.bilibili import BiliSigner, BiliURLParser, BiliVideoParser, BiliUserCrawler, BiliHttpClient
+    from crawlers.bilibili import (
+        BiliSigner,
+        BiliURLParser,
+        BiliVideoParser,
+        BiliUserCrawler,
+        BiliHttpClient,
+    )
 
     signer = BiliSigner()
     client = BiliHttpClient(signer)
@@ -14,10 +20,10 @@
 
 from __future__ import annotations
 
-from crawlers.bilibili.bili_http_client import BiliHttpClient, BiliAPIError
+from crawlers.bilibili.bili_http_client import BiliAPIError, BiliHttpClient
 from crawlers.bilibili.bili_signer import BiliSigner
-from crawlers.bilibili.bili_url_parser import BiliURLParser, BiliParsedURL
-from crawlers.bilibili.bili_user_crawler import BiliUserCrawler, BiliPostItem
+from crawlers.bilibili.bili_url_parser import BiliParsedURL, BiliURLParser
+from crawlers.bilibili.bili_user_crawler import BiliPostItem, BiliUserCrawler
 from crawlers.bilibili.bili_video_parser import (
     BiliPage,
     BiliPlayUrl,

@@ -14,8 +14,7 @@ import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
-from backend.api.covers import _validate_url, proxy_cover, router
-
+from backend.api.covers import _validate_url, router
 
 # === _validate_url SSRF 防护 ===
 

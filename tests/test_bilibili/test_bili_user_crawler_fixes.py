@@ -14,8 +14,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from crawlers.bilibili.bili_user_crawler import BiliPostItem, BiliUserCrawler, _parse_duration
 from crawlers.bilibili.bili_url_parser import BiliURLParser
+from crawlers.bilibili.bili_user_crawler import BiliPostItem, BiliUserCrawler, _parse_duration
 
 pytestmark = pytest.mark.bilibili
 
@@ -109,7 +109,19 @@ class TestUserCrawlerVlist:
         crawler, http_client = _make_crawler()
         http_client.get_json.return_value = {
             "page": {"count": 1},
-            "vlist": [{"bvid": "BV1bb", "aid": 1002, "title": "视频2", "author": "UP", "pic": "", "length": "1:00", "play": 1, "danmaku": 0, "pubdate": 0}],
+            "vlist": [
+                {
+                    "bvid": "BV1bb",
+                    "aid": 1002,
+                    "title": "视频2",
+                    "author": "UP",
+                    "pic": "",
+                    "length": "1:00",
+                    "play": 1,
+                    "danmaku": 0,
+                    "pubdate": 0,
+                }
+            ],
         }
 
         items, has_more, total = await crawler.fetch_user_posts_with_meta(12345, max_count=10)
@@ -124,7 +136,17 @@ class TestUserCrawlerVlist:
         crawler, http_client = _make_crawler()
         # 第一页 30 条，真实总数 80 → has_more=True
         vlist = [
-            {"bvid": f"BV{i:02d}", "aid": i, "title": f"v{i}", "author": "UP", "pic": "", "length": "1:00", "play": 0, "danmaku": 0, "pubdate": 0}
+            {
+                "bvid": f"BV{i:02d}",
+                "aid": i,
+                "title": f"v{i}",
+                "author": "UP",
+                "pic": "",
+                "length": "1:00",
+                "play": 0,
+                "danmaku": 0,
+                "pubdate": 0,
+            }
             for i in range(30)
         ]
         http_client.get_json.side_effect = [
@@ -144,7 +166,17 @@ class TestUserCrawlerVlist:
         """max_count 超过 100 时被钳制到 100。"""
         crawler, http_client = _make_crawler()
         vlist = [
-            {"bvid": f"BV{i:03d}", "aid": i, "title": f"v{i}", "author": "UP", "pic": "", "length": "0:05", "play": 0, "danmaku": 0, "pubdate": 0}
+            {
+                "bvid": f"BV{i:03d}",
+                "aid": i,
+                "title": f"v{i}",
+                "author": "UP",
+                "pic": "",
+                "length": "0:05",
+                "play": 0,
+                "danmaku": 0,
+                "pubdate": 0,
+            }
             for i in range(30)
         ]
         http_client.get_json.side_effect = [
@@ -165,7 +197,19 @@ class TestUserCrawlerVlist:
         """旧生成器接口 fetch_user_posts 仍可用。"""
         crawler, http_client = _make_crawler()
         http_client.get_json.return_value = _page_data(
-            [{"bvid": "BV1cc", "aid": 1003, "title": "视频3", "author": "UP", "pic": "", "length": "2:00", "play": 5, "danmaku": 1, "pubdate": 1}],
+            [
+                {
+                    "bvid": "BV1cc",
+                    "aid": 1003,
+                    "title": "视频3",
+                    "author": "UP",
+                    "pic": "",
+                    "length": "2:00",
+                    "play": 5,
+                    "danmaku": 1,
+                    "pubdate": 1,
+                }
+            ],
             count=1,
         )
 

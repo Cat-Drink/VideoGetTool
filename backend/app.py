@@ -26,9 +26,9 @@ from app import config, database
 from app.logger import get_logger, setup_logger
 from backend.api import config as config_router
 from backend.api import cookie as cookie_router
+from backend.api import covers as covers_router
 from backend.api import crawler as crawler_router
 from backend.api import download as download_router
-from backend.api import covers as covers_router
 from backend.api import health as health_router
 from backend.api import ws as ws_router
 from backend.state import ctx
@@ -79,7 +79,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     ctx.cookie_tester = CookieTester(ctx.http_client, ctx.signer)
 
     # 4.5. B 站爬虫层组件（v0.4.0）
-    from crawlers.bilibili import BiliSigner, BiliHttpClient, BiliURLParser, BiliVideoParser, BiliUserCrawler
+    from crawlers.bilibili import (
+        BiliHttpClient,
+        BiliSigner,
+        BiliURLParser,
+        BiliUserCrawler,
+        BiliVideoParser,
+    )
 
     ctx.bili_signer = BiliSigner()
     ctx.bili_http_client = BiliHttpClient(ctx.bili_signer)
@@ -266,6 +272,7 @@ app.include_router(ws_router.router, prefix="/api", tags=["ws"])
 app.include_router(covers_router.router, prefix="/api", tags=["covers"])
 # v0.4.0：B 站路由
 from backend.api import bilibili as bilibili_router
+
 app.include_router(bilibili_router.router, prefix="/api/bilibili", tags=["bilibili"])
 
 

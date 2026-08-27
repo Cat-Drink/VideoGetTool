@@ -15,9 +15,9 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from app.logger import get_logger
-from crawlers.bilibili.constants import DEFAULT_QUALITY, PLAYURL_URL, QUALITY_MAP, VIEW_URL
 from crawlers.bilibili.bili_http_client import BiliHttpClient
 from crawlers.bilibili.bili_signer import BiliSigner
+from crawlers.bilibili.constants import DEFAULT_QUALITY, PLAYURL_URL, VIEW_URL
 from crawlers.exceptions import VideoNotFoundError
 
 if TYPE_CHECKING:
@@ -307,7 +307,8 @@ class BiliVideoParser:
             "bvid": bvid,
             "cid": cid,
             "qn": quality,
-            "fnval": 4048,  # 请求 DASH 格式 (1=MP4, 2=FLV, 16=DASH, 256=HDR, 512=4K, 2048=杜比视界, 4048=综合)
+            # 请求 DASH 格式 (1=MP4, 2=FLV, 16=DASH, 256=HDR, 512=4K, 2048=杜比视界, 4048=综合)
+            "fnval": 4048,
             "fnver": 0,
             "fourk": 1,  # 允许 4K
         }
@@ -344,7 +345,9 @@ class BiliVideoParser:
                     BiliStream(
                         id=v.get("id", 0),
                         url=v.get("base_url") or v.get("backup_url", [""])[0] or "",
-                        base_url=(v.get("backup_url") or [None])[0] if v.get("backup_url") else None,
+                        base_url=(
+                            (v.get("backup_url") or [None])[0] if v.get("backup_url") else None
+                        ),
                         bandwidth=v.get("bandwidth", 0),
                         mime_type=v.get("mime_type", ""),
                         codecs=v.get("codecs", ""),
@@ -360,7 +363,9 @@ class BiliVideoParser:
                     BiliStream(
                         id=a.get("id", 0),
                         url=a.get("base_url") or a.get("backup_url", [""])[0] or "",
-                        base_url=(a.get("backup_url") or [None])[0] if a.get("backup_url") else None,
+                        base_url=(
+                            (a.get("backup_url") or [None])[0] if a.get("backup_url") else None
+                        ),
                         bandwidth=a.get("bandwidth", 0),
                         mime_type=a.get("mime_type", ""),
                         codecs=a.get("codecs", ""),

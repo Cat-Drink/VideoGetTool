@@ -22,8 +22,6 @@ import httpx
 from app.logger import get_logger
 from crawlers.bilibili.constants import (
     DEFAULT_HEADERS,
-    DEFAULT_REFERER,
-    DEFAULT_USER_AGENT,
     REQUEST_TIMEOUT_CONNECT,
     REQUEST_TIMEOUT_READ,
 )
@@ -163,7 +161,9 @@ class BiliHttpClient:
 
         # 步骤 4：发起请求
         try:
-            response = await self._client.get(url, params=full_params, headers=headers, cookies=cookies)
+            response = await self._client.get(
+                url, params=full_params, headers=headers, cookies=cookies
+            )
         except httpx.HTTPError as e:
             logger.error("B 站网络异常: url=%s error=%s", url, type(e).__name__)
             raise NetworkError(f"B 站网络请求失败: {e}") from e

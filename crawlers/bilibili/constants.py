@@ -78,7 +78,7 @@ DEFAULT_HEADERS: dict[str, str] = {
 # B 站视频清晰度 qn 参数
 QUALITY_MAP: dict[str, int] = {
     "4K": 120,
-    "1080P+": 112,       # 大会员
+    "1080P+": 112,  # 大会员
     "1080P": 80,
     "720P": 64,
     "480P": 32,
