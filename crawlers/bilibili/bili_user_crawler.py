@@ -27,6 +27,18 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
+def _normalize_cover_url(url: str) -> str:
+    """归一化封面图片地址为 HTTPS。
+
+    B 站 space 接口返回的 pic 字段常为 http:// 地址；在 Tauri 打包后的
+    WebView 中 http 子资源会被当作混合内容拦截，导致封面不显示。
+    https 变体经实测可用，因此统一替换为 https。
+    """
+    if url and url.startswith("http://"):
+        return "https://" + url[len("http://") :]
+    return url
+
+
 # === 数据结构 ===
 
 
@@ -220,7 +232,7 @@ class BiliUserCrawler:
                     aid=v.get("aid", 0),
                     title=v.get("title", ""),
                     author=v.get("author", ""),
-                    cover_url=v.get("pic", ""),
+                    cover_url=_normalize_cover_url(v.get("pic", "")),
                     duration=_parse_duration(v.get("length") or v.get("duration") or 0),
                     view_count=v.get("play", 0) or v.get("view", 0) or 0,
                     danmaku_count=v.get("danmaku", 0) or v.get("video_review", 0) or 0,
@@ -303,7 +315,7 @@ class BiliUserCrawler:
                     aid=v.get("aid", 0),
                     title=v.get("title", ""),
                     author=v.get("author", ""),
-                    cover_url=v.get("pic", ""),
+                    cover_url=_normalize_cover_url(v.get("pic", "")),
                     duration=_parse_duration(v.get("length") or v.get("duration") or 0),
                     view_count=v.get("play", 0) or v.get("view", 0) or 0,
                     danmaku_count=v.get("danmaku", 0) or v.get("video_review", 0) or 0,

@@ -422,7 +422,7 @@ export default function BiliFetchPage() {
                   <span className="w-5 flex-shrink-0" />
                   <div className="w-12 h-12 rounded-sm bg-bg-hover flex-shrink-0 flex items-center justify-center text-text-disabled text-xs overflow-hidden">
                     {item.coverUrl ? (
-                      <img src={item.coverUrl} alt={item.title} className="w-full h-full object-cover" />
+                      <img src={api.proxyImageUrl(item.coverUrl)} alt={item.title} className="w-full h-full object-cover" />
                     ) : (
                       "封面"
                     )}

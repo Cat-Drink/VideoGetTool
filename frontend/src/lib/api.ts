@@ -1,6 +1,19 @@
+
 /** API 服务层 - 封装所有后端 REST 调用 */
 
 const API_BASE = "http://127.0.0.1:18989/api";
+
+/** 把远程封面/预览图地址转为本地代理地址。
+ *
+ * Tauri 2 打包后 WebView 直接加载远程 http/https 图片会被拦截/混合内容
+ * 规则阻止（实测仅做 http→https 归一化无法解决），而前端对本地 sidecar
+ * （127.0.0.1:18989）的请求始终可用。因此统一经由后端代理抓取图片，
+ * 前端 <img> 指向本地地址即可稳定渲染。
+ */
+export function proxyImageUrl(url?: string | null): string {
+  if (!url) return "";
+  return API_BASE + "/covers?url=" + encodeURIComponent(url);
+}
 
 /** 通用请求包装 */
 async function request<T>(path: string, options?: RequestInit): Promise<T> {

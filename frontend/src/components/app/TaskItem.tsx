@@ -1,5 +1,6 @@
 import { Play, Pause, RotateCw, FolderOpen, RefreshCw, Trash2 } from "lucide-react";
 import { openInFolder } from "../../lib/tauri";
+import { proxyImageUrl } from "../../lib/api";
 import { Progress } from "../ui/progress";
 import { Badge } from "../ui/badge";
 import type { DisplayTask } from "../../store/taskStore";
@@ -36,7 +37,7 @@ export function TaskItem({ task, onPause, onResume, onRetry, onDelete }: TaskIte
       {/* Thumbnail */}
       <div className="w-16 h-16 rounded-sm bg-bg-hover flex-shrink-0 flex items-center justify-center text-text-disabled text-xs">
         {task.coverUrl ? (
-          <img src={task.coverUrl} alt={task.title} className="w-full h-full object-cover rounded-sm" />
+          <img src={proxyImageUrl(task.coverUrl)} alt={task.title} className="w-full h-full object-cover rounded-sm" />
         ) : (
           <div className="flex flex-col items-center">
             <span className="text-lg">📄</span>

@@ -28,6 +28,7 @@ from backend.api import config as config_router
 from backend.api import cookie as cookie_router
 from backend.api import crawler as crawler_router
 from backend.api import download as download_router
+from backend.api import covers as covers_router
 from backend.api import health as health_router
 from backend.api import ws as ws_router
 from backend.state import ctx
@@ -262,6 +263,7 @@ app.include_router(crawler_router.router, prefix="/api/crawler", tags=["crawler"
 app.include_router(cookie_router.router, prefix="/api/cookie", tags=["cookie"])
 app.include_router(config_router.router, prefix="/api/config", tags=["config"])
 app.include_router(ws_router.router, prefix="/api", tags=["ws"])
+app.include_router(covers_router.router, prefix="/api", tags=["covers"])
 # v0.4.0：B 站路由
 from backend.api import bilibili as bilibili_router
 app.include_router(bilibili_router.router, prefix="/api/bilibili", tags=["bilibili"])

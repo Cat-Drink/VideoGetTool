@@ -26,6 +26,18 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
+def _normalize_cover_url(url: str) -> str:
+    """归一化封面图片地址为 HTTPS。
+
+    B 站 view 接口返回的 pic 字段常为 http:// 地址；在 Tauri 打包后的
+    WebView 中 http 子资源会被当作混合内容拦截，导致封面不显示。
+    https 变体经实测可用（同一资源，字节一致），因此统一替换为 https。
+    """
+    if url and url.startswith("http://"):
+        return "https://" + url[len("http://") :]
+    return url
+
+
 # === 数据结构 ===
 
 
@@ -202,7 +214,7 @@ class BiliVideoParser:
         aid = data.get("aid") or aid or 0
         title = data.get("title") or ""
         desc = data.get("desc") or ""
-        cover_url = data.get("pic") or ""
+        cover_url = _normalize_cover_url(data.get("pic") or "")
         duration = data.get("duration") or 0  # 秒
 
         # 作者信息

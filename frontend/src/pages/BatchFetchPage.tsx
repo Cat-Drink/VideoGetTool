@@ -3,6 +3,7 @@ import { Upload, FileText, Loader2, AlertCircle, ChevronRight, ChevronDown } fro
 import { Button } from "../components/ui/button";
 import { Textarea } from "../components/ui/textarea";
 import { Badge } from "../components/ui/badge";
+import { proxyImageUrl } from "../lib/api";
 import { useParseStore, extractLinks } from "../store/parseStore";
 import { useToastStore } from "../store/toastStore";
 import { useUiInputStore } from "../store/uiInputStore";
@@ -291,7 +292,7 @@ export default function BatchFetchPage() {
                     )}
                     <div className="w-12 h-12 rounded-sm bg-bg-hover flex-shrink-0 flex items-center justify-center text-text-disabled text-xs overflow-hidden">
                       {item.coverUrl ? (
-                        <img src={item.coverUrl} alt={item.title} className="w-full h-full object-cover" />
+                        <img src={proxyImageUrl(item.coverUrl)} alt={item.title} className="w-full h-full object-cover" />
                       ) : (
                         "封面"
                       )}
@@ -339,7 +340,7 @@ export default function BatchFetchPage() {
                                 onClick={(e) => e.stopPropagation()}
                               />
                               <img
-                                src={imgUrl}
+                                src={proxyImageUrl(imgUrl)}
                                 alt={`图片 ${imgIdx + 1}`}
                                 className={`w-full aspect-square object-cover rounded-sm border ${checked ? "border-purple-400" : "border-border-light opacity-40"} transition-colors`}
                                 onClick={(e) => {

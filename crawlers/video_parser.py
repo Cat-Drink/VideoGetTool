@@ -30,6 +30,18 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
+def _normalize_cover_url(url: str) -> str:
+    """归一化封面/图片地址为 HTTPS。
+
+    抖音接口返回的封面与图集图片 url_list 常为 http:// 地址；在 Tauri 打包
+    后的 WebView 中 http 子资源会被当作混合内容拦截，导致封面/预览图不显示。
+    https 变体经实测可用（同一资源），因此统一替换为 https。
+    """
+    if url and url.startswith("http://"):
+        return "https://" + url[len("http://") :]
+    return url
+
+
 # === 类型别名 ===
 
 # 抖音作品类型（与计划文档 11.2 节一致，供 UserHomeCrawler 复用）
@@ -246,7 +258,7 @@ class VideoParser:
                 continue
             url = url_list[0]
             if isinstance(url, str) and url:
-                urls.append(url)
+                urls.append(_normalize_cover_url(url))
         return urls
 
     @staticmethod
@@ -374,7 +386,7 @@ class VideoParser:
         """
         url_list = detail.get("video", {}).get("cover", {}).get("url_list")
         if isinstance(url_list, list) and url_list and isinstance(url_list[0], str):
-            return url_list[0]
+            return _normalize_cover_url(url_list[0])
         return ""
 
     @staticmethod
