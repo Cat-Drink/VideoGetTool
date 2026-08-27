@@ -435,6 +435,19 @@ class TaskItemRepository:
                 (selected_image_indices, now_iso(), item_id),
             )
 
+    def update_dash_merged(self, item_id: int, merged: bool = True) -> None:
+        """标记 DASH 音视频流是否已合并完成（v0.4.0）。
+
+        Args:
+            item_id: 任务项 id
+            merged: True 置 '1'（已合并），False 置 ''（未合并）
+        """
+        with self._conn:
+            self._conn.execute(
+                "UPDATE task_items SET dash_merged = ?, updated_at = ? WHERE id = ?",
+                ("1" if merged else "", now_iso(), item_id),
+            )
+
     def delete(self, item_id: int) -> None:
         """删除任务项。"""
         with self._conn:

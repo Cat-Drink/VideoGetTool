@@ -845,6 +845,8 @@ class Downloader:
 
         final_str = os.path.normpath(os.path.abspath(str(final_path)))
         self._mark_status(task_item.id, "completed", local_path=final_str)
+        # 标记 DASH 已合并，落地 dash_merged 字段的跟踪意图
+        self._item_repo.update_dash_merged(task_item.id, merged=True)
         # 合并完成：统一上报 100% 进度，避免 UI 进度条停留在视频流下载进度
         self._progress_reporter.update(task_item.id, 100, 100, status="completed")
         logger.info("DASH 合并完成 task_item id=%s path=%s", task_item.id, final_str)

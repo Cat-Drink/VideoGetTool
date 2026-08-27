@@ -14,19 +14,30 @@
 
 安全（防 SSRF）：
     - 仅允许 http/https 协议
-    - 拒绝回环/私网/链路本地/保留地址主机名
+    - 拒绝回环/私网/链路本地/保留地址主机名（文本前缀）
+    - 在连接阶段对解析出的实际 IP 再次校验私网/保留段，防御 DNS rebinding
+      与"域名解析到内网/元数据地址"绕过（如 localtest.me→127.0.0.1、
+      nicob.nsroot.io→169.254.169.254）
     - URL 长度上限
+    - 响应体大小上限，避免大体积响应全量载入内存
 """
 
 from __future__ import annotations
 
+import ipaddress
+import socket
+
 import httpx
 from fastapi import APIRouter, HTTPException, Query, Response
+from httpx import AsyncHTTPTransport
 
 router = APIRouter()
 
 # 封面抓取超时（秒）
 _FETCH_TIMEOUT: float = 10.0
+
+# 响应体大小上限（20MB），避免大体积图片/非图片响应全量载入内存
+_MAX_COVER_BYTES: int = 20 * 1024 * 1024
 
 # 拒绝的主机名（防 SSRF）：回环、私网、链路本地、保留、IPv6 回环等
 _BLOCKED_HOSTS = {
@@ -74,8 +85,64 @@ _ALLOWED_CONTENT_TYPES = (
 )
 
 
+def _is_blocked_ip(ip: str) -> bool:
+    """判断 IP 地址是否属于禁止访问的私网/保留/回环等范围。
+
+    无法解析为合法 IP 时也视为禁止（防御异常输入）。
+
+    参数:
+        ip: 点分十进制 IPv4 或标准 IPv6 字符串。
+
+    返回:
+        禁止访问返回 True。
+    """
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return True
+    return (
+        addr.is_private
+        or addr.is_loopback
+        or addr.is_link_local
+        or addr.is_reserved
+        or addr.is_multicast
+        or addr.is_unspecified
+    )
+
+
+class _SSRFGuardTransport(AsyncHTTPTransport):
+    """在连接阶段校验解析后 IP 的 httpx 传输层。
+
+    文本前缀检查无法防御"域名解析到内网/元数据地址"的 DNS rebinding 攻击。
+    本 Transport 在真正建连前对 getaddrinfo 解析出的每个 IP 再次校验，
+    任一命中私网/保留段即拒绝请求。
+    """
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        host = request.url.host
+        if host:
+            port = request.url.port or (443 if request.url.scheme == "https" else 80)
+            try:
+                addrinfos = socket.getaddrinfo(host, port)
+            except OSError as exc:
+                raise httpx.ConnectError(
+                    f"DNS resolution failed for {host}: {exc}"
+                ) from exc
+            for info in addrinfos:
+                ip = info[4][0]
+                if _is_blocked_ip(ip):
+                    raise httpx.ConnectError(
+                        f"blocked target ip {ip} for host {host}"
+                    )
+        return await super().handle_async_request(request)
+
+
 def _validate_url(url: str) -> str:
-    """校验并归一化远程图片 URL（防 SSRF），返回原 URL。"""
+    """校验并归一化远程图片 URL（防 SSRF），返回原 URL。
+
+    第一层（文本）校验：协议白名单、主机名前缀黑名单、URL 长度。
+    第二层（解析 IP）校验由 _SSRFGuardTransport 在连接阶段完成。
+    """
     if not url:
         raise HTTPException(status_code=400, detail="missing url")
     if len(url) > 4096:
@@ -86,6 +153,8 @@ def _validate_url(url: str) -> str:
     if parts.scheme not in ("http", "https"):
         raise HTTPException(status_code=400, detail="only http/https allowed")
     host = (parts.hostname or "").lower()
+    if not host:
+        raise HTTPException(status_code=400, detail="missing host")
     if host in _BLOCKED_HOSTS or any(host.startswith(p) for p in _BLOCKED_HOST_PREFIXES):
         raise HTTPException(status_code=400, detail="target not allowed")
     return url
@@ -97,6 +166,8 @@ async def proxy_cover(url: str = Query(...)):
 
     - 服务端 httpx 抓取，携带浏览器 UA 与 Referer，规避 CDN 防盗链。
     - 响应带 Cache-Control，让 WebView 缓存封面减少重复请求。
+    - 不跟随重定向：落地 URL 不可控时直接失败，避免 SSRF 重定向绕过。
+    - 流式接收并校验大小上限，避免大体积响应全量载入内存。
     """
     target = _validate_url(url)
     headers = {
@@ -107,8 +178,16 @@ async def proxy_cover(url: str = Query(...)):
         "Referer": "https://www.bilibili.com/",
     }
     try:
-        async with httpx.AsyncClient(follow_redirects=True, timeout=_FETCH_TIMEOUT) as client:
+        async with httpx.AsyncClient(
+            follow_redirects=False,
+            timeout=_FETCH_TIMEOUT,
+            transport=_SSRFGuardTransport(),
+        ) as client:
             resp = await client.get(target, headers=headers)
+    except httpx.ConnectError as exc:
+        raise HTTPException(
+            status_code=400, detail=f"target blocked or unreachable: {exc}"
+        ) from exc
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=502, detail=f"fetch failed: {exc}") from exc
     if resp.status_code != 200:
@@ -118,8 +197,24 @@ async def proxy_cover(url: str = Query(...)):
     if content_type and content_type not in _ALLOWED_CONTENT_TYPES:
         raise HTTPException(status_code=502, detail=f"unexpected content-type {content_type}")
 
+    # 预检 Content-Length，提前拒绝超大响应
+    declared = resp.headers.get("content-length")
+    if declared is not None:
+        try:
+            if int(declared) > _MAX_COVER_BYTES:
+                raise HTTPException(status_code=413, detail="image too large")
+        except ValueError:
+            pass
+
+    # 流式接收并校验实际大小上限，避免 resp.content 全量载入内存
+    body = bytearray()
+    async for chunk in resp.aiter_bytes(64 * 1024):
+        body.extend(chunk)
+        if len(body) > _MAX_COVER_BYTES:
+            raise HTTPException(status_code=413, detail="image too large")
+
     return Response(
-        content=resp.content,
+        content=bytes(body),
         media_type=content_type or "image/jpeg",
         headers={"Cache-Control": "public, max-age=86400"},
     )

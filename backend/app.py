@@ -89,7 +89,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     ctx.bili_signer = BiliSigner()
     ctx.bili_http_client = BiliHttpClient(ctx.bili_signer)
-    ctx.bili_url_parser = BiliURLParser(http_client=ctx.bili_http_client._client)
+    ctx.bili_url_parser = BiliURLParser(http_client=ctx.bili_http_client.client)
     ctx.bili_video_parser = BiliVideoParser(ctx.bili_http_client, ctx.bili_signer)
     ctx.bili_user_crawler = BiliUserCrawler(ctx.bili_http_client, ctx.bili_signer)
     log.info("B 站爬虫层组件已初始化")

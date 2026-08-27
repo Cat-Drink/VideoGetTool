@@ -81,7 +81,7 @@ class BiliPlayUrlRequest(BaseModel):
     cid: int
     quality: int = 80
     cookie: str | None = None
-    # True=强制使用请求携带的 cookie；False=未传时回退到已保存的 B 站 Cookie
+    # 未显式传 cookie 时，是否回退使用已保存的 B 站 Cookie（默认 True）
     use_saved_cookie: bool = True
 
 
@@ -286,8 +286,10 @@ async def bili_fetch_space(req: BiliSpaceRequest):
             else:
                 raise HTTPException(status_code=400, detail="无法从 URL 解析用户 ID")
 
+        # 复用已保存的 B 站 Cookie（与 /playurl 一致），支持受限用户主页抓取
+        cookie = ctx.config_repo.get("bilibili_cookie") or None
         posts, has_more, total = await ctx.bili_user_crawler.fetch_user_posts_with_meta(
-            mid, max_count=req.max_count
+            mid, max_count=req.max_count, cookie=cookie
         )
         items = [
             {
@@ -328,15 +330,16 @@ async def bili_cookie_test(req: BiliCookieTestRequest):
 
     try:
         # 先刷新 WBI 密钥（首次使用需要）
-        await ctx.bili_signer.refresh_keys(ctx.bili_http_client._client)
+        await ctx.bili_signer.refresh_keys(ctx.bili_http_client.client)
         # 携带测试 Cookie 发起 nav 请求检测登录状态（仅本次请求生效）
         data = await ctx.bili_http_client.get_json(NAV_URL, signed=False, cookie=req.cookie)
         is_login = data.get("isLogin", False)
-        uname = (
-            data.get("uname") or data.get("Uname") or (data.get("data") or {}).get("uname")
-            if isinstance(data, dict)
-            else None
-        )
+        # nav 响应的 uname 位于 data 顶层（get_json 已解包外层 data）；
+        # 兼容个别嵌套形态（data.data.uname）与非 dict 响应
+        if isinstance(data, dict):
+            uname = data.get("uname") or (data.get("data") or {}).get("uname")
+        else:
+            uname = None
         return BiliCookieTestResult(
             valid=is_login,
             nickname=uname,

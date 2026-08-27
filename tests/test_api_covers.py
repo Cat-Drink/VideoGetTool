@@ -4,6 +4,7 @@
     - _validate_url 的 SSRF 防护（协议/回环/私网/链路本地拦截）
     - proxy_cover 抓取成功时返回图片字节与正确 Content-Type
     - 上游非 200 / 非图片 Content-Type 时的错误处理
+    - 响应体大小上限保护
 """
 
 from __future__ import annotations
@@ -14,7 +15,17 @@ import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
-from backend.api.covers import _validate_url, router
+from backend.api.covers import _MAX_COVER_BYTES, _validate_url, router
+
+
+def _make_iter_bytes(body: bytes):
+    """构造一个同步返回 async generator 的 aiter_bytes 替身。"""
+
+    async def _aiter_bytes(_=None):
+        yield body
+
+    return _aiter_bytes
+
 
 # === _validate_url SSRF 防护 ===
 
@@ -91,10 +102,13 @@ class TestProxyCover:
 
     def test_returns_image_bytes(self, api_client) -> None:
         """抓取成功时返回图片字节与 image/jpeg。"""
+        # JPEG SOI + SOI0 marker + payload
+        body = bytes.fromhex("ffd8ffe0") + b"fakejpeg"
+
         mock_resp = MagicMock()
         mock_resp.status_code = 200
-        mock_resp.content = b"\xff\xd8\xff\xe0fakejpeg"
         mock_resp.headers = {"content-type": "image/jpeg"}
+        mock_resp.aiter_bytes = _make_iter_bytes(body)
 
         with patch("httpx.AsyncClient") as mock_client_cls:
             mock_client = MagicMock()
@@ -109,7 +123,7 @@ class TestProxyCover:
 
         assert resp.status_code == 200
         assert resp.headers["content-type"].startswith("image/jpeg")
-        assert resp.content == b"\xff\xd8\xff\xe0fakejpeg"
+        assert resp.content == body
         assert "cache-control" in resp.headers
 
     def test_returns_400_for_ssrf_target(self, api_client) -> None:
@@ -129,8 +143,8 @@ class TestProxyCover:
         """上游非 200 时返回 502。"""
         mock_resp = MagicMock()
         mock_resp.status_code = 403
-        mock_resp.content = b"forbidden"
         mock_resp.headers = {}
+        mock_resp.aiter_bytes = _make_iter_bytes(b"forbidden")
 
         with patch("httpx.AsyncClient") as mock_client_cls:
             mock_client = MagicMock()
@@ -147,10 +161,12 @@ class TestProxyCover:
 
     def test_upstream_non_image_content_type_returns_502(self, api_client) -> None:
         """上游返回非图片 Content-Type 时返回 502。"""
+        body = b"<html>not an image</html>"
+
         mock_resp = MagicMock()
         mock_resp.status_code = 200
-        mock_resp.content = b"<html>not an image</html>"
         mock_resp.headers = {"content-type": "text/html"}
+        mock_resp.aiter_bytes = _make_iter_bytes(body)
 
         with patch("httpx.AsyncClient") as mock_client_cls:
             mock_client = MagicMock()
@@ -164,3 +180,26 @@ class TestProxyCover:
             )
 
         assert resp.status_code == 502
+
+    def test_oversized_body_returns_413(self, api_client) -> None:
+        """响应体超过上限时返回 413。"""
+        # 构造超过大小上限的单块（流式接收时第二次累加判定会触发）
+        body = b"x" * (_MAX_COVER_BYTES + 1)
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.headers = {"content-type": "image/jpeg"}
+        mock_resp.aiter_bytes = _make_iter_bytes(body)
+
+        with patch("httpx.AsyncClient") as mock_client_cls:
+            mock_client = MagicMock()
+            mock_client.get = AsyncMock(return_value=mock_resp)
+            mock_client_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            resp = api_client.get(
+                "/api/covers",
+                params={"url": "https://i0.hdslb.com/bfs/archive/cover.jpg"},
+            )
+
+        assert resp.status_code == 413

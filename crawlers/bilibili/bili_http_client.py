@@ -81,6 +81,9 @@ class BiliHttpClient:
         """
         self._signer = signer
         self._cookie = cookie or ""
+        # 构造时生成一次 buvid3 并在客户端生命周期内复用，
+        # 更贴近真实设备指纹，降低 B 站风控触发概率。
+        self._buvid3: str = signer.generate_buvid3()
         self._client = httpx.AsyncClient(
             http2=True,
             timeout=httpx.Timeout(
@@ -92,6 +95,15 @@ class BiliHttpClient:
             follow_redirects=True,
             headers=dict(DEFAULT_HEADERS),
         )
+
+    @property
+    def client(self) -> httpx.AsyncClient:
+        """暴露底层 httpx.AsyncClient，供 signer 刷新密钥等场景复用。
+
+        供 BiliSigner.refresh_keys 等需要复用同一连接池的调用方使用，
+        避免外部直接访问私有 _client 属性。
+        """
+        return self._client
 
     async def close(self) -> None:
         """关闭内部 httpx.AsyncClient，释放连接池。"""
@@ -157,7 +169,7 @@ class BiliHttpClient:
                     k, v = part.split("=", 1)
                     cookies[k.strip()] = v.strip()
         if "buvid3" not in cookies:
-            cookies["buvid3"] = self._signer.generate_buvid3()
+            cookies["buvid3"] = self._buvid3
 
         # 步骤 4：发起请求
         try:
