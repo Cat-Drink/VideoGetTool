@@ -153,7 +153,7 @@ pub fn run() {
                 .sidecar("backend-sidecar")
                 .map_err(|e| e.to_string())?;
             let (mut _rx, child) = sidecar_command
-                .args(&["--host", "127.0.0.1", "--port", "18989"])
+                .args(["--host", "127.0.0.1", "--port", "18989"])
                 .spawn()
                 .map_err(|e| e.to_string())?;
             app.manage(SidecarChild(Mutex::new(Some(child))));

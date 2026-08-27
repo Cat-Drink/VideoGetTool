@@ -125,15 +125,11 @@ class _SSRFGuardTransport(AsyncHTTPTransport):
             try:
                 addrinfos = socket.getaddrinfo(host, port)
             except OSError as exc:
-                raise httpx.ConnectError(
-                    f"DNS resolution failed for {host}: {exc}"
-                ) from exc
+                raise httpx.ConnectError(f"DNS resolution failed for {host}: {exc}") from exc
             for info in addrinfos:
                 ip = info[4][0]
                 if _is_blocked_ip(ip):
-                    raise httpx.ConnectError(
-                        f"blocked target ip {ip} for host {host}"
-                    )
+                    raise httpx.ConnectError(f"blocked target ip {ip} for host {host}")
         return await super().handle_async_request(request)
 
 
