@@ -73,6 +73,10 @@ _MAX_CONCURRENT_REQUESTS: int = 3
 _RETRY_MAX_ATTEMPTS: int = 3
 _RETRY_BASE_DELAY: float = 2.0  # 第 1 次等待 2s
 
+# HTTP 403 重试参数：较短退避（第 1 次 1s、第 2 次 2s），最多 3 次
+_RETRY_403_MAX_ATTEMPTS: int = 3
+_RETRY_403_BASE_DELAY: float = 1.0  # 第 1 次等待 1s
+
 
 @dataclass(frozen=True)
 class CookieRecord:
@@ -251,8 +255,9 @@ class HttpClient:
         """在信号量保护下发起请求，带指数退避重试。
 
         重试策略：
-            - 仅对网络异常（CurlRequestsError）和 429 限流重试
-            - 指数退避：2s / 4s / 8s，最多 3 次
+            - 仅对网络异常（CurlRequestsError）、429 限流、HTTP 403 重试
+            - 网络异常/429 指数退避：2s / 4s / 8s，最多 3 次
+            - HTTP 403 较短退避：1s / 2s，最多 3 次
             - 优先使用响应头 Retry-After
             - 461/412/验证 HTML 等业务异常不重试，直接抛出
 
@@ -266,11 +271,14 @@ class HttpClient:
 
         异常:
             RateLimitedError: 429 且重试耗尽。
-            NetworkError: 网络异常且重试耗尽。
+            NetworkError: 网络异常或 HTTP 403 且重试耗尽。
             CookieInvalidError / VerifyRequiredError: 不重试，直接抛出。
         """
         last_exc: BaseException | None = None
-        for attempt in range(1, _RETRY_MAX_ATTEMPTS + 1):
+        # 循环上界取各重试策略尝试次数的最大值（网络/429 用 _RETRY_MAX_ATTEMPTS，
+        # HTTP 403 用 _RETRY_403_MAX_ATTEMPTS），保证 403 独立上限不被截断
+        max_attempts = max(_RETRY_MAX_ATTEMPTS, _RETRY_403_MAX_ATTEMPTS)
+        for attempt in range(1, max_attempts + 1):
             async with self._semaphore:
                 try:
                     response = await self._client.get(url, params=params, headers=headers)
@@ -320,6 +328,27 @@ class HttpClient:
                     await asyncio.sleep(wait)
                     continue
                 raise RateLimitedError(f"请求过于频繁，重试 {_RETRY_MAX_ATTEMPTS} 次耗尽")
+            if status == 403:
+                # HTTP 403：多为风控/反爬临时拦截，用较短退避重试（独立尝试上限）
+                last_exc = NetworkError("HTTP 403 错误响应")
+                retry_after = self._parse_retry_after(response)
+                wait = (
+                    retry_after
+                    if retry_after is not None
+                    else _RETRY_403_BASE_DELAY * (2 ** (attempt - 1))
+                )
+                logger.warning(
+                    "HTTP 403 (attempt %d/%d): url=%s retry_after=%s",
+                    attempt,
+                    _RETRY_403_MAX_ATTEMPTS,
+                    url,
+                    wait,
+                )
+                if attempt < _RETRY_403_MAX_ATTEMPTS:
+                    logger.info("等待 %.1f 秒后重试", wait)
+                    await asyncio.sleep(wait)
+                    continue
+                raise NetworkError("HTTP 403 错误响应")
             # 200 / 3xx / 461/412 / 其他：返回响应，由上层 get() 的 _handle_response 分类处理
             # （461/412 在 _handle_response 中抛 CookieInvalidError，
             #   再由 get() 的 except 块触发 Cookie 切换）
