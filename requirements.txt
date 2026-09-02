@@ -2,5 +2,7 @@
 fastapi>=0.115
 uvicorn>=0.34
 httpx[http2]>=0.28
+# 抖音 web API 请求（impersonate="chrome" 伪造浏览器 TLS 指纹，绕过 Janus 风控空 body）
+curl_cffi>=0.16
 # WebP 解码（动画 WebP 帧提取，FFmpeg 原生解码器不支持动画）
 Pillow>=10

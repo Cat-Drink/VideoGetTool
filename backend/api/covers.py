@@ -84,11 +84,21 @@ _ALLOWED_CONTENT_TYPES = (
     "image/bmp",
 )
 
+# RFC 2544 基准测试网段（198.18.0.0/15）：Clash / sing-box / V2Ray 等代理工具
+# 在 TUN 模式下使用该网段作为虚拟网关地址，抖音封面 CDN（douyinpic.com）在
+# 这类网络环境下会解析到 198.18.0.x。该网段并非真实私网/内网基础设施，
+# Python ipaddress 却将其 is_private 判定为 True，若按 is_private 一律拦截，
+# 会误伤经本地透明代理加载的封面/预览图（详见 objective：列表项预览图不显示）。
+# 因此显式放行该网段（请求仍经由用户本地代理出口，不构成 SSRF 到内网的风险）。
+_BENCHMARK_NETWORK = ipaddress.ip_network("198.18.0.0/15")
+
 
 def _is_blocked_ip(ip: str) -> bool:
     """判断 IP 地址是否属于禁止访问的私网/保留/回环等范围。
 
     无法解析为合法 IP 时也视为禁止（防御异常输入）。
+    RFC 2544 基准测试网段（198.18.0.0/15）被 Clash/sing-box 等 TUN 模式
+    透明代理用作虚拟网关地址，予以放行，避免误伤经代理加载的封面图。
 
     参数:
         ip: 点分十进制 IPv4 或标准 IPv6 字符串。
@@ -100,6 +110,8 @@ def _is_blocked_ip(ip: str) -> bool:
         addr = ipaddress.ip_address(ip)
     except ValueError:
         return True
+    if addr in _BENCHMARK_NETWORK:
+        return False
     return (
         addr.is_private
         or addr.is_loopback

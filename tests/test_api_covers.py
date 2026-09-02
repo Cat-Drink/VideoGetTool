@@ -15,7 +15,13 @@ import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
-from backend.api.covers import _MAX_COVER_BYTES, _validate_url, router
+from backend.api.covers import (
+    _BENCHMARK_NETWORK,
+    _MAX_COVER_BYTES,
+    _is_blocked_ip,
+    _validate_url,
+    router,
+)
 
 
 def _make_iter_bytes(body: bytes):
@@ -84,6 +90,30 @@ class TestValidateUrl:
         with pytest.raises(HTTPException) as exc:
             _validate_url(long_url)
         assert exc.value.status_code == 400
+
+    def test_allows_benchmark_range_for_proxy(self) -> None:
+        """放行 RFC 2544 基准测试网段（198.18.0.0/15）。
+
+        Clash / sing-box / V2Ray 等 TUN 模式透明代理使用该网段作为虚拟网关
+        地址，抖音封面 CDN（douyinpic.com）在代理环境下解析到 198.18.0.x。
+        Python ipaddress 将 is_private 判定为 True，若不显式放行，
+        /covers 代理会误拦截封面图，导致列表项预览图不显示。
+        """
+        # 网段内任意地址都不应被 _is_blocked_ip 拦截
+        assert not _is_blocked_ip("198.18.0.1")
+        assert not _is_blocked_ip("198.18.0.206")
+        assert not _is_blocked_ip("198.19.255.255")
+        # 真正的私网/回环地址仍须拦截
+        assert _is_blocked_ip("10.0.0.5")
+        assert _is_blocked_ip("127.0.0.1")
+        assert _is_blocked_ip("192.168.1.1")
+        assert _is_blocked_ip("172.16.0.1")
+        assert _is_blocked_ip("169.254.169.254")
+        # 公开 IP 放行
+        assert not _is_blocked_ip("8.8.8.8")
+        assert not _is_blocked_ip("1.1.1.1")
+        # 网段常量本身可识别
+        assert _BENCHMARK_NETWORK.num_addresses > 0
 
 
 # === proxy_cover 端点 ===
