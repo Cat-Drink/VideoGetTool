@@ -3,6 +3,7 @@
 被 PyInstaller 打包为单一可执行文件，供 Tauri 桌面壳作为 sidecar 启动。
 """
 
+import asyncio
 import os
 import sys
 import threading
@@ -32,6 +33,11 @@ def _watch_stdin_and_exit() -> None:
 
 
 if __name__ == "__main__":
+    # Windows 默认 Proactor 事件循环不支持 add_reader（curl_cffi 需要），
+    # 切到 Selector 事件循环以支持 curl_cffi AsyncSession（抖音风控修复 v0.4.x）。
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
     threading.Thread(target=_watch_stdin_and_exit, daemon=True).start()
     uvicorn.run(
         "backend.app:app",

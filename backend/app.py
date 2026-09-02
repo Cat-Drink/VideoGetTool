@@ -277,6 +277,13 @@ app.include_router(bilibili_router.router, prefix="/api/bilibili", tags=["bilibi
 
 
 if __name__ == "__main__":
+    import asyncio
+    import sys
     import uvicorn
+
+    # Windows 默认 Proactor 事件循环不支持 add_reader（curl_cffi 需要），
+    # 切到 Selector 事件循环以支持 curl_cffi AsyncSession（抖音风控修复 v0.4.x）。
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     uvicorn.run("backend.app:app", host="127.0.0.1", port=18989, reload=True)

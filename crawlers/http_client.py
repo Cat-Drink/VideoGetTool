@@ -1,17 +1,25 @@
 """HTTP 客户端模块。
 
-封装 ``httpx.AsyncClient`` 单例，统一注入签名、Cookie、Headers，
+封装 ``curl_cffi.requests.AsyncSession`` 单例，统一注入签名、Cookie、Headers，
 提供异步 GET 请求入口与 Cookie 池管理（轮询取用 / 失败上报 / 全池失效检测）。
+
+为什么用 curl_cffi：
+    抖音 Janus 风控通过 TLS 指纹（JA3/JA4）识别非浏览器 HTTP 客户端，
+    对 ``aweme/v1/web/*`` 接口返回 HTTP 200 + 空 body 软封禁。curl_cffi 的
+    ``impersonate="chrome"`` 可伪造与真实 Chrome 一致的 TLS/HTTP2 指纹，
+    绕过该检测（详见 ``docs/hotfix/root-cause.md``）。
 
 接口签名与 ``docs/structure/05-接口设计文档.md`` 第 3.5 节保持一致。
 """
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
-import httpx
+from curl_cffi.requests import AsyncSession, Response as CurlResponse
+from curl_cffi.requests.exceptions import RequestException as CurlRequestsError
 
 from app.logger import get_logger
 from app.models import Cookie, now_iso
@@ -56,6 +64,13 @@ VERIFY_HTML_MARKERS: tuple[str, ...] = (
 
 # Cookie 连续失败上限：达到此值后置 status='invalid'
 MAX_FAIL_COUNT: int = 3
+
+# 最大同时请求数（并发信号量），避免脉冲式请求造成 burst
+_MAX_CONCURRENT_REQUESTS: int = 3
+
+# 限流重试参数：指数退避，最大重试次数
+_RETRY_MAX_ATTEMPTS: int = 3
+_RETRY_BASE_DELAY: float = 2.0  # 第 1 次等待 2s
 
 
 @dataclass(frozen=True)
@@ -105,7 +120,8 @@ def _cookie_to_record(cookie: Cookie) -> CookieRecord:
 class HttpClient:
     """HTTP 客户端。
 
-    封装 ``httpx.AsyncClient``，提供统一请求入口与 Cookie 池管理。
+    封装 ``curl_cffi.requests.AsyncSession``（impersonate="chrome"），
+    提供统一请求入口与 Cookie 池管理。
     通过依赖注入接收 CookieRepository 以操作 Cookie 池。
 
     Cookie 池策略遵循设计文档 4.3 节：
@@ -132,27 +148,31 @@ class HttpClient:
             timeout_connect: 连接超时（秒），默认 10.0。
             timeout_read: 读取超时（秒），默认 30.0。
         """
-        # httpx 已在模块顶部导入
+        # curl_cffi 已在模块顶部导入；impersonate="chrome" 伪造浏览器 TLS 指纹
+        # （JA3/JA4），绕过抖音 Janus 风控对 httpx 的 200+空 body 软封禁。
+        # timeout 为 (connect, read) 二元组（curl_cffi 语义，见 utils.py）。
         self._cookie_repository = cookie_repository
         self._signer = signer
-        self._client = httpx.AsyncClient(
-            http2=True,
-            timeout=httpx.Timeout(
-                connect=timeout_connect,
-                read=timeout_read,
-                write=10.0,
-                pool=5.0,
-            ),
-            follow_redirects=False,
+        self._client = AsyncSession(
+            impersonate="chrome",
+            allow_redirects=False,  # 原 httpx 的 follow_redirects=False
+            timeout=(timeout_connect, timeout_read),
             headers=dict(DEFAULT_HEADERS),
         )
+        # 并发信号量：限制同时请求数，平滑流量，避免 burst
+        self._semaphore = asyncio.Semaphore(_MAX_CONCURRENT_REQUESTS)
 
     async def close(self) -> None:
-        """关闭内部 ``httpx.AsyncClient``，释放连接池。
+        """关闭内部 ``AsyncSession``，释放连接池。
 
         调用时机：应用退出时（AsyncWorker.stop）。
         """
-        await self._client.aclose()
+        # curl_cffi AsyncSession.close 是协程，必须 await
+        await self._client.close()
+        # 释放信号量（让后续 close 幂等）
+        for _ in range(_MAX_CONCURRENT_REQUESTS):
+            if self._semaphore.locked():
+                self._semaphore.release()
 
     # === 请求入口 ===
 
@@ -162,7 +182,7 @@ class HttpClient:
         params: dict | None = None,
         use_cookie_pool: bool = True,
         cookie: str | None = None,
-    ) -> httpx.Response:
+    ) -> CurlResponse:
         """发起 GET 请求，自动注入签名、Cookie、统一 Headers。
 
         参数:
@@ -172,7 +192,7 @@ class HttpClient:
             cookie: 显式指定 Cookie（优先级高于池）。
 
         返回:
-            httpx.Response。
+            curl_cffi 的 Response（兼容 .status_code/.json()/.headers/.text/.url）。
 
         异常:
             CookieInvalidError: 池中所有 Cookie 均失效或 461/412 响应。
@@ -200,11 +220,16 @@ class HttpClient:
         if cookie_str is not None:
             headers["Cookie"] = cookie_str
 
-        # 步骤 4：发起请求（含 Cookie 自动切换重试）
+        # 步骤 4：通过 _do_fetch 发起请求（信号量 + 指数退避重试）
         cookie_id = cookie_record.id if cookie_record is not None else None
         try:
-            response = await self._client.get(url, params=full_params, headers=headers)
-        except httpx.HTTPError as e:
+            response = await self._do_fetch(url, full_params, headers)
+        except RateLimitedError:
+            # 429 限流不做 Cookie 切换重试，直接上报
+            if cookie_id is not None:
+                self.report_cookie_fail(cookie_id)
+            raise
+        except CurlRequestsError as e:
             logger.error("网络异常: url=%s error=%s", url, type(e).__name__)
             raise NetworkError(f"网络请求失败: {e}") from e
 
@@ -216,12 +241,102 @@ class HttpClient:
                 raise
             return await self._retry_with_next_cookie(url, full_params, headers)
 
+    async def _do_fetch(
+        self,
+        url: str,
+        params: dict,
+        headers: dict[str, str],
+    ) -> CurlResponse:
+        """在信号量保护下发起请求，带指数退避重试。
+
+        重试策略：
+            - 仅对网络异常（CurlRequestsError）和 429 限流重试
+            - 指数退避：2s / 4s / 8s，最多 3 次
+            - 优先使用响应头 Retry-After
+            - 461/412/验证 HTML 等业务异常不重试，直接抛出
+
+        参数:
+            url: 请求 URL。
+            params: 含签名的完整参数。
+            headers: 请求头。
+
+        返回:
+            curl_cffi 的 Response。
+
+        异常:
+            RateLimitedError: 429 且重试耗尽。
+            NetworkError: 网络异常且重试耗尽。
+            CookieInvalidError / VerifyRequiredError: 不重试，直接抛出。
+        """
+        last_exc: BaseException | None = None
+        for attempt in range(1, _RETRY_MAX_ATTEMPTS + 1):
+            async with self._semaphore:
+                try:
+                    response = await self._client.get(url, params=params, headers=headers)
+                except CurlRequestsError as e:
+                    last_exc = e
+                    logger.warning(
+                        "请求失败 (attempt %d/%d): url=%s error=%s",
+                        attempt, _RETRY_MAX_ATTEMPTS, url, type(e).__name__,
+                    )
+                    if attempt < _RETRY_MAX_ATTEMPTS:
+                        wait = _RETRY_BASE_DELAY * (2 ** (attempt - 1))
+                        logger.info("指数退避等待 %.1f 秒后重试", wait)
+                        await asyncio.sleep(wait)
+                        continue
+                    raise NetworkError(f"网络请求失败（重试 {_RETRY_MAX_ATTEMPTS} 次耗尽）: {e}") from e
+                except asyncio.CancelledError:
+                    # 任务取消时立即终止，不继续重试
+                    logger.info("请求被取消: url=%s", url)
+                    raise
+
+            # 检查响应状态码（在信号量外，避免持有信号量时做耗时处理）
+            status = response.status_code
+            if status == 429:
+                last_exc = RateLimitedError(f"HTTP 429 限流（attempt {attempt}/{_RETRY_MAX_ATTEMPTS}）")
+                retry_after = self._parse_retry_after(response)
+                wait = retry_after if retry_after is not None else _RETRY_BASE_DELAY * (2 ** (attempt - 1))
+                logger.warning(
+                    "限流 429 (attempt %d/%d): url=%s retry_after=%s",
+                    attempt, _RETRY_MAX_ATTEMPTS, url, wait,
+                )
+                if attempt < _RETRY_MAX_ATTEMPTS:
+                    logger.info("等待 %.1f 秒后重试", wait)
+                    await asyncio.sleep(wait)
+                    continue
+                raise RateLimitedError(f"请求过于频繁，重试 {_RETRY_MAX_ATTEMPTS} 次耗尽")
+            # 200 / 3xx / 461/412 / 其他：返回响应，由上层 get() 的 _handle_response 分类处理
+            # （461/412 在 _handle_response 中抛 CookieInvalidError，再由 get() 的 except 块触发 Cookie 切换）
+            return response
+        # 不应到达这里：for 循环内每次都会 return/raise/continue
+        if last_exc is not None:
+            raise last_exc
+        raise NetworkError(f"请求失败（重试 {_RETRY_MAX_ATTEMPTS} 次耗尽）")
+
+    @staticmethod
+    def _parse_retry_after(response: CurlResponse) -> float | None:
+        """从响应头解析 Retry-After（秒），返回 None 表示未提供。
+
+        参数:
+            response: 限流响应对象。
+
+        返回:
+            Retry-After 秒数（float），无此头返回 None。
+        """
+        retry_after = response.headers.get("retry-after")
+        if retry_after is None:
+            return None
+        try:
+            return float(retry_after)
+        except (TypeError, ValueError):
+            return None
+
     async def _retry_with_next_cookie(
         self,
         url: str,
         full_params: dict,
         headers: dict[str, str],
-    ) -> httpx.Response:
+    ) -> CurlResponse:
         """Cookie 失效后从池中取下一条 Cookie 重试一次。
 
         参数:
@@ -230,7 +345,7 @@ class HttpClient:
             headers: 基础请求头（不含 Cookie）。
 
         返回:
-            httpx.Response。
+            curl_cffi 的 Response。
 
         异常:
             CookieInvalidError: 池中已无可用 Cookie 或重试仍失败。
@@ -245,7 +360,7 @@ class HttpClient:
         retry_headers = {**headers, "Cookie": next_record.content}
         try:
             response = await self._client.get(url, params=full_params, headers=retry_headers)
-        except httpx.HTTPError as e:
+        except CurlRequestsError as e:
             logger.error("重试网络异常: url=%s error=%s", url, type(e).__name__)
             raise NetworkError(f"网络请求失败: {e}") from e
         return self._handle_response(response, next_record.id)
@@ -328,10 +443,10 @@ class HttpClient:
 
     def _handle_response(
         self,
-        response: httpx.Response,
+        response: CurlResponse,
         cookie_id: int | None,
-    ) -> httpx.Response:
-        """对 httpx 响应进行风控分类，转换为对应异常。
+    ) -> CurlResponse:
+        """对响应进行风控分类，转换为对应异常。
 
         分类逻辑（按优先级）:
             1. ``status_code in {461, 412}`` → 上报 Cookie 失败，抛 ``CookieInvalidError``
@@ -343,11 +458,11 @@ class HttpClient:
             7. 其他 5xx → 抛 ``NetworkError``
 
         参数:
-            response: httpx 响应对象。
+            response: 响应对象（鸭子类型，需有 .status_code/.headers/.text/.url）。
             cookie_id: 关联的 Cookie ID，None 表示不带 Cookie 请求（不上报）。
 
         返回:
-            成功时返回原 ``httpx.Response``，供上层解析。
+            成功时返回原 ``response``，供上层解析。
 
         异常:
             CookieInvalidError: 461/412 风控响应。
@@ -395,13 +510,13 @@ class HttpClient:
         raise NetworkError(f"HTTP {status} 错误响应")
 
     @staticmethod
-    def _is_verify_response(response: httpx.Response) -> bool:
+    def _is_verify_response(response: CurlResponse) -> bool:
         """检测响应是否含滑动验证 HTML 特征。
 
         仅在 Content-Type 非 JSON 时检测，避免对大 JSON 响应做全文扫描。
 
         参数:
-            response: httpx 响应对象。
+            response: 响应对象（鸭子类型，需有 .headers.get/.text）。
 
         返回:
             含验证特征返回 True，否则 False。
