@@ -35,25 +35,65 @@ export default function BatchFetchPage() {
     batchResults: parsed,
     batchLoading: loading,
     batchError: error,
+    retryingItems,
     parseUrls,
+    retryItems,
     clearBatch,
     removeBatchItems,
     downloadSelected,
   } = useParseStore();
 
   const { addToast } = useToastStore();
+  // 当前所有失败项的索引（渲染用）
+  const failedIndices = parsed.map((item, i) => (item.error ? i : -1)).filter((i) => i >= 0);
 
   const handleParse = async () => {
     const urls = extractLinks(links);
     if (urls.length === 0) return;
     setSelected(new Set());
     await parseUrls(urls);
-    // 解析成功后自动清空输入框 (issue-8)
-    if (!useParseStore.getState().batchError) {
+    const state = useParseStore.getState();
+    // 整批 API 异常（batchError 非空）：保留输入，不清空
+    if (state.batchError) return;
+    // 本次新增的结果是 batchResults 末尾 urls.length 条
+    const added = state.batchResults.slice(state.batchResults.length - urls.length);
+    const failedCount = added.filter((item) => item.error).length;
+    if (failedCount > 0) {
+      // 有失败项：保留输入，提示可重试
+      addToast(`${failedCount} 条解析失败，输入内容已保留可重试`, "warning");
+    } else {
+      // 全部成功才自动清空输入框 (issue-8)
       setLinks("");
     }
   };
 
+  /** 重试单个失败项：原位替换该条结果 */
+  const handleRetryItem = async (index: number) => {
+    try {
+      await retryItems([index]);
+      const updated = useParseStore.getState().batchResults[index];
+      if (updated?.error) {
+        addToast(`该链接仍解析失败: ${updated.error}`, "error");
+      } else {
+        addToast("重试成功", "success");
+      }
+    } catch (e) {
+      addToast(e instanceof Error ? e.message : "重试失败", "error");
+    }
+  };
+
+  /** 一键重试所有失败项 */
+  const handleRetryAllFailed = async () => {
+    if (failedIndices.length === 0) return;
+    await retryItems(failedIndices);
+    const state = useParseStore.getState();
+    const remaining = failedIndices.filter((idx) => state.batchResults[idx]?.error);
+    if (remaining.length === 0) {
+      addToast("全部失败项重试成功", "success");
+    } else {
+      addToast(`${remaining.length} 项仍解析失败，可再次重试`, "warning");
+    }
+  };
   const handleFileImport = () => {
     fileInputRef.current?.click();
   };
@@ -309,6 +349,23 @@ export default function BatchFetchPage() {
                         )}
                       </div>
                     </div>
+                    {item.error && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="flex-shrink-0 text-xs"
+                        disabled={retryingItems.has(i)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleRetryItem(i);
+                        }}
+                      >
+                        {retryingItems.has(i) ? (
+                          <Loader2 size={14} className="mr-1 animate-spin" />
+                        ) : null}
+                        重试
+                      </Button>
+                    )}
                     {!item.error && (
                       <>
                         <Badge variant={item.type === "video" ? "video" : item.type === "image_set" ? "image_set" : "long_video"} />
@@ -371,6 +428,16 @@ export default function BatchFetchPage() {
               onClick={handleDeleteSelected}
             >
               删除选中
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-warning"
+              disabled={failedIndices.length === 0}
+              onClick={handleRetryAllFailed}
+              title="重试所有解析失败的链接"
+            >
+              重试失败项 ({failedIndices.length})
             </Button>
             <Button
               variant="ghost"

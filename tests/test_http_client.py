@@ -8,7 +8,8 @@ CookieRepository 用内存实现，不依赖真实网络与真实 Cookie。
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock
+import asyncio
+from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
@@ -818,6 +819,70 @@ class TestHttpGet:
             await client.get(_TEST_URL, {"aweme_id": "123"})
         # _do_fetch 最多重试 3 次，429 不触发 Cookie 切换
         assert transport.get.await_count == 3
+
+    async def test_get_403_retries_then_raises_network_error(
+        self,
+        sample_cookies: list[Cookie],
+        cookie_repo: CookieRepository,
+        stub_signer: StubSigner,
+    ) -> None:
+        """403 → 较短退避重试 3 次耗尽后抛 NetworkError，不触发 Cookie 切换/失败上报。"""
+        client, transport = _make_client(cookie_repo, stub_signer)
+        transport.get.return_value = _make_resp(
+            403,
+            text="forbidden",
+            headers={"content-type": "text/plain", "retry-after": "0"},
+        )
+        with pytest.raises(NetworkError, match="403"):
+            await client.get(_TEST_URL, {"aweme_id": "123"})
+        # _do_fetch 最多重试 3 次，403 不触发 Cookie 切换
+        assert transport.get.await_count == 3
+        # 403 不视为 Cookie 失效，fail_count 保持不变
+        updated = cookie_repo.get_by_id(sample_cookies[0].id)
+        assert updated is not None
+        assert updated.fail_count == 0
+
+    async def test_get_403_uses_short_backoff(
+        self,
+        sample_cookies: list[Cookie],
+        cookie_repo: CookieRepository,
+        stub_signer: StubSigner,
+    ) -> None:
+        """403 无 Retry-After → 退避 1s / 2s（第 1 次 1s、第 2 次 2s），共 3 次尝试。"""
+        client, transport = _make_client(cookie_repo, stub_signer)
+        transport.get.return_value = _make_resp(
+            403, text="forbidden", headers={"content-type": "text/plain"}
+        )
+        sleeps: list[float] = []
+
+        async def _fake_sleep(delay: float) -> None:
+            sleeps.append(delay)
+
+        with patch.object(asyncio, "sleep", side_effect=_fake_sleep):
+            with pytest.raises(NetworkError, match="403"):
+                await client.get(_TEST_URL, {"aweme_id": "123"})
+        assert sleeps == [1.0, 2.0]
+        assert transport.get.await_count == 3
+
+    async def test_get_403_then_success_returns_response(
+        self,
+        sample_cookies: list[Cookie],
+        cookie_repo: CookieRepository,
+        stub_signer: StubSigner,
+    ) -> None:
+        """403 后重试成功（403 → 200）→ 返回 200 响应，仅发起 2 次请求。"""
+        client, transport = _make_client(cookie_repo, stub_signer)
+        transport.get.side_effect = [
+            _make_resp(
+                403,
+                text="forbidden",
+                headers={"content-type": "text/plain", "retry-after": "0"},
+            ),
+            httpx.Response(200, json={"status_code": 0}),
+        ]
+        response = await client.get(_TEST_URL, {"aweme_id": "123"})
+        assert response.status_code == 200
+        assert transport.get.await_count == 2
 
     async def test_get_verify_html_raises_verify_required(
         self,

@@ -221,10 +221,18 @@ export default function BiliFetchPage() {
         selectedPages: r.pages && r.pages.length > 0 ? r.pages.map((p) => p.cid) : null,
       }));
       setResults((prev) => [...prev, ...mapped]);
-      setLinks("");
-      if (mapped.every((m) => m.error)) {
-        addToast("全部解析失败，请检查链接或稍后重试", "error");
+      const failedCount = mapped.filter((m) => m.error).length;
+      if (failedCount > 0) {
+        // 有失败项：保留输入，提示可重试
+        addToast(
+          failedCount === mapped.length
+            ? "全部解析失败，输入内容已保留可重试"
+            : `${failedCount} 条解析失败，输入内容已保留可重试`,
+          failedCount === mapped.length ? "error" : "warning",
+        );
       } else {
+        // 全部成功才自动清空输入框 (issue-8)
+        setLinks("");
         addToast(`解析完成：${mapped.length} 条`, "success");
       }
     } catch (e) {

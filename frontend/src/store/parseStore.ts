@@ -27,6 +27,8 @@ interface ParseStore {
   batchResults: ParsedResult[];
   batchLoading: boolean;
   batchError: string | null;
+  /** 正在重试的解析项索引集合 */
+  retryingItems: Set<number>;
 
   // 主页抓取
   profileResults: ParsedResult[];
@@ -35,6 +37,8 @@ interface ParseStore {
 
   /** 批量解析链接 */
   parseUrls: (urls: string[]) => Promise<void>;
+  /** 重试指定索引的解析项：原位替换结果，保持位置与顺序 */
+  retryItems: (indices: number[]) => Promise<void>;
   /** 清空批量解析结果 */
   clearBatch: () => void;
   /** 移除已入队下载的批量解析项 */
@@ -60,6 +64,7 @@ export const useParseStore = create<ParseStore>((set) => ({
   batchResults: [],
   batchLoading: false,
   batchError: null,
+  retryingItems: new Set<number>(),
 
   profileResults: [],
   profileLoading: false,
@@ -101,6 +106,55 @@ parseUrls: async (urls: string[]) => {
 	      });
 	    }
 	  },
+
+  retryItems: async (indices: number[]) => {
+    if (indices.length === 0) return;
+    const retrying = new Set(indices);
+    set((state) => ({ retryingItems: new Set([...state.retryingItems, ...retrying]) }));
+    try {
+      // 按索引收集待重试的 URL（保持与入参索引一一对应）
+      const urls = indices.map((idx) => useParseStore.getState().batchResults[idx]?.url || "");
+      const rawResults = await api.parseUrls(urls);
+      set((state) => {
+        const next = [...state.batchResults];
+        indices.forEach((idx, k) => {
+          if (idx < 0 || idx >= next.length) return;
+          const r = rawResults[k];
+          if (!r) return;
+          // 原位替换，保留原 index 位置；保留图片选择所需字段
+          next[idx] = {
+            index: idx,
+            url: urls[k] || r.url || next[idx].url || "",
+            title: r.title || "",
+            author: r.author || "",
+            type: (r.type as ParsedResult["type"]) || "video",
+            awemeId: r.aweme_id,
+            coverUrl: r.cover_url,
+            duration: r.duration,
+            imageCount: r.image_count,
+            noWatermarkUrl: r.no_watermark_url || undefined,
+            imageUrls: r.image_urls || undefined,
+            itemVideoUrls: r.item_video_urls || undefined,
+            itemTypes: r.item_types || undefined,
+            publishedAt: r.publish_time || undefined,
+            error: r.error || undefined,
+          };
+        });
+        const nextRetrying = new Set(state.retryingItems);
+        retrying.forEach((i) => nextRetrying.delete(i));
+        return { batchResults: next, retryingItems: nextRetrying };
+      });
+    } catch (e) {
+      set((state) => {
+        const nextRetrying = new Set(state.retryingItems);
+        retrying.forEach((i) => nextRetrying.delete(i));
+        return {
+          batchError: e instanceof Error ? e.message : "重试失败",
+          retryingItems: nextRetrying,
+        };
+      });
+    }
+  },
 
   clearBatch: () => {
     set({ batchResults: [], batchError: null });
