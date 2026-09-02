@@ -858,9 +858,11 @@ class TestHttpGet:
         async def _fake_sleep(delay: float) -> None:
             sleeps.append(delay)
 
-        with patch.object(asyncio, "sleep", side_effect=_fake_sleep):
-            with pytest.raises(NetworkError, match="403"):
-                await client.get(_TEST_URL, {"aweme_id": "123"})
+        with (
+            patch.object(asyncio, "sleep", side_effect=_fake_sleep),
+            pytest.raises(NetworkError, match="403"),
+        ):
+            await client.get(_TEST_URL, {"aweme_id": "123"})
         assert sleeps == [1.0, 2.0]
         assert transport.get.await_count == 3
 
