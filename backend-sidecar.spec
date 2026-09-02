@@ -34,7 +34,7 @@ a = Analysis(
         'libexpat.dll',
     ),
     datas=[('backend', 'backend'), ('app', 'app'), ('crawlers', 'crawlers'), ('downloader', 'downloader')],
-    hiddenimports=['uvicorn.logging', 'uvicorn.loops.auto', 'uvicorn.loops.asyncio', 'uvicorn.protocols.http.auto', 'uvicorn.protocols.http.h11_impl', 'uvicorn.protocols.websockets.auto', 'uvicorn.protocols.websockets.wsproto_impl', 'uvicorn.lifespan.on', 'starlette.middleware.cors', 'databases', 'sqlalchemy', 'httpx', 'httpcore', 'anyio', 'sniffio'],
+    hiddenimports=['uvicorn.logging', 'uvicorn.loops.auto', 'uvicorn.loops.asyncio', 'uvicorn.protocols.http.auto', 'uvicorn.protocols.http.h11_impl', 'uvicorn.protocols.websockets.auto', 'uvicorn.protocols.websockets.wsproto_impl', 'uvicorn.lifespan.on', 'starlette.middleware.cors', 'databases', 'sqlalchemy', 'httpx', 'httpcore', 'anyio', 'sniffio', 'curl_cffi', 'curl_cffi.requests', 'curl_cffi.requests.exceptions'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
