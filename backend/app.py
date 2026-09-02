@@ -279,6 +279,7 @@ app.include_router(bilibili_router.router, prefix="/api/bilibili", tags=["bilibi
 if __name__ == "__main__":
     import asyncio
     import sys
+
     import uvicorn
 
     # Windows 默认 Proactor 事件循环不支持 add_reader（curl_cffi 需要），

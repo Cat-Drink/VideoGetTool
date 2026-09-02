@@ -18,7 +18,8 @@ import asyncio
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
-from curl_cffi.requests import AsyncSession, Response as CurlResponse
+from curl_cffi.requests import AsyncSession
+from curl_cffi.requests import Response as CurlResponse
 from curl_cffi.requests.exceptions import RequestException as CurlRequestsError
 
 from app.logger import get_logger
@@ -277,14 +278,19 @@ class HttpClient:
                     last_exc = e
                     logger.warning(
                         "请求失败 (attempt %d/%d): url=%s error=%s",
-                        attempt, _RETRY_MAX_ATTEMPTS, url, type(e).__name__,
+                        attempt,
+                        _RETRY_MAX_ATTEMPTS,
+                        url,
+                        type(e).__name__,
                     )
                     if attempt < _RETRY_MAX_ATTEMPTS:
                         wait = _RETRY_BASE_DELAY * (2 ** (attempt - 1))
                         logger.info("指数退避等待 %.1f 秒后重试", wait)
                         await asyncio.sleep(wait)
                         continue
-                    raise NetworkError(f"网络请求失败（重试 {_RETRY_MAX_ATTEMPTS} 次耗尽）: {e}") from e
+                    raise NetworkError(
+                        f"网络请求失败（重试 {_RETRY_MAX_ATTEMPTS} 次耗尽）: {e}"
+                    ) from e
                 except asyncio.CancelledError:
                     # 任务取消时立即终止，不继续重试
                     logger.info("请求被取消: url=%s", url)
@@ -293,12 +299,21 @@ class HttpClient:
             # 检查响应状态码（在信号量外，避免持有信号量时做耗时处理）
             status = response.status_code
             if status == 429:
-                last_exc = RateLimitedError(f"HTTP 429 限流（attempt {attempt}/{_RETRY_MAX_ATTEMPTS}）")
+                last_exc = RateLimitedError(
+                    f"HTTP 429 限流（attempt {attempt}/{_RETRY_MAX_ATTEMPTS}）"
+                )
                 retry_after = self._parse_retry_after(response)
-                wait = retry_after if retry_after is not None else _RETRY_BASE_DELAY * (2 ** (attempt - 1))
+                wait = (
+                    retry_after
+                    if retry_after is not None
+                    else _RETRY_BASE_DELAY * (2 ** (attempt - 1))
+                )
                 logger.warning(
                     "限流 429 (attempt %d/%d): url=%s retry_after=%s",
-                    attempt, _RETRY_MAX_ATTEMPTS, url, wait,
+                    attempt,
+                    _RETRY_MAX_ATTEMPTS,
+                    url,
+                    wait,
                 )
                 if attempt < _RETRY_MAX_ATTEMPTS:
                     logger.info("等待 %.1f 秒后重试", wait)
@@ -306,7 +321,8 @@ class HttpClient:
                     continue
                 raise RateLimitedError(f"请求过于频繁，重试 {_RETRY_MAX_ATTEMPTS} 次耗尽")
             # 200 / 3xx / 461/412 / 其他：返回响应，由上层 get() 的 _handle_response 分类处理
-            # （461/412 在 _handle_response 中抛 CookieInvalidError，再由 get() 的 except 块触发 Cookie 切换）
+            # （461/412 在 _handle_response 中抛 CookieInvalidError，
+            #   再由 get() 的 except 块触发 Cookie 切换）
             return response
         # 不应到达这里：for 循环内每次都会 return/raise/continue
         if last_exc is not None:
