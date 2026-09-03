@@ -477,6 +477,7 @@ class Downloader:
         Returns:
             规范化后的最终文件绝对路径字符串
         """
+        final_path.parent.mkdir(parents=True, exist_ok=True)
         if final_path.exists():
             final_path.unlink()
         with open(final_path, "wb") as out:
@@ -1040,6 +1041,9 @@ class Downloader:
         # → 用 "wb" 截断旧 .part 内容；否则 "ab" 续传追加。
         mode = "wb" if downloaded_bytes == 0 else "ab"
 
+        # 兜底创建父目录：目标目录可能尚未创建（图集子下载/续传/目录被清理后
+        # 重试等场景），否则 open(.part) 抛 FileNotFoundError [Errno 2]
+        part_path.parent.mkdir(parents=True, exist_ok=True)
         try:
             with open(part_path, mode) as f:
                 async for chunk in response.aiter_bytes(CHUNK_SIZE):
@@ -1135,6 +1139,7 @@ class Downloader:
 
                     # 流式接收
                     mode = "ab" if downloaded > 0 else "wb"
+                    part_path.parent.mkdir(parents=True, exist_ok=True)
                     with open(part_path, mode) as f:
                         async for chunk in response.aiter_bytes(CHUNK_SIZE):
                             f.write(chunk)
