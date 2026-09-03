@@ -415,6 +415,28 @@ class TestDownloadSingleFile:
         ).fetchone()
         assert row["downloaded_bytes"] == len(data)
 
+    @respx.mock
+    async def test_download_creates_missing_parent_dir(self, tmp_path: Path) -> None:
+        """目标目录不存在时自动创建，避免 .part 打开时 FileNotFoundError。
+
+        回归：图集图片下载/重试时目标目录可能尚未就绪或已被清理，
+        写入 .part 前必须兜底创建父目录（原实现仅在调用方创建）。
+        """
+        respx.head("https://cdn.example.com/v.mp4").mock(return_value=httpx.Response(404))
+        data = b"nested_dir_content"
+        respx.get("https://cdn.example.com/v.mp4").mock(
+            return_value=httpx.Response(200, content=data)
+        )
+        dl, item = _make_downloader_with_item(download_dir=str(tmp_path))
+        _insert_item(dl._conn, item)
+        # 父目录不存在：模拟图片/视频目标目录尚未创建的场景
+        final_path = tmp_path / "not_created" / f"{item.aweme_id}.mp4"
+        result = await dl._download_single_file(item, item.url, final_path)
+        assert result.success is True
+        assert final_path.parent.exists()
+        assert final_path.exists()
+        assert final_path.read_bytes() == data
+
 
 # ==================== 断点续传测试 ====================
 
@@ -1304,6 +1326,25 @@ class TestDownloadSegment:
         on_chunk.assert_called()
         total_reported = sum(call.args[0] for call in on_chunk.call_args_list)
         assert total_reported == len(data)
+
+    @respx.mock
+    async def test_segment_creates_missing_parent_dir(self, tmp_path: Path) -> None:
+        """分片目标目录不存在时自动创建，避免 .part.{i} 打开时 FileNotFoundError。"""
+        data = b"segment_data_54321"
+        respx.get("https://cdn.example.com/v.mp4").mock(
+            return_value=httpx.Response(
+                206, content=data, headers={"Content-Length": str(len(data))}
+            )
+        )
+        dl = _make_downloader()
+        part_path = tmp_path / "missing_dir" / "video.part.0"
+        on_chunk = MagicMock()
+        result = await dl._download_segment(
+            "https://cdn.example.com/v.mp4", part_path, 0, len(data) - 1, on_chunk
+        )
+        assert result == len(data)
+        assert part_path.parent.exists()
+        assert part_path.read_bytes() == data
 
     @respx.mock
     async def test_resume_from_partial(self, tmp_path: Path) -> None:
