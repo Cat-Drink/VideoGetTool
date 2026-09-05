@@ -24,15 +24,20 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  lint-test:
-    name: Lint & Test
-    # Gitleaks 步骤在 Linux 无 Windows 包 404 问题（gitleaks 跨平台），
-    # 故本 job 运行于 ubuntu-latest。
+  gitleaks:
+    name: Gitleaks Secret Scan
+    # gitleaks 跨平台；在 ubuntu 上各版本均有 linux_x64.tar.gz 发布资产，
+    # 不存在 Windows 平台某版本仅有 zip 资产导致的下载 404。
+    # checkout 用 fetch-depth: 0 拉全历史：PR 事件下 gitleaks-action 需要
+    # 解析 base^..head 提交范围，浅克隆会导致
+    # "fatal: ambiguous argument ... unknown revision"。
     runs-on: ubuntu-latest
 
     steps:
-      - name: 检出代码
+      - name: 检出代码（完整历史）
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       # 审计 S5：secrets 硬编码扫描（gitleaks，含历史提交）
       # 注：固定官方稳定版 v2.3.1（禁止裸 @v2）；该 action 不支持
@@ -44,6 +49,15 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_LICENSE: ""
+
+  lint-test:
+    name: Lint & Test
+    # 本项目为 Windows 桌面应用，Python 单测/覆盖率在 Windows runner 上执行
+    runs-on: windows-latest
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
 
       - name: 设置 Python 3.11
         uses: actions/setup-python@v5
