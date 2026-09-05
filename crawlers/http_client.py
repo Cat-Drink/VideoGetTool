@@ -549,3 +549,31 @@ class HttpClient:
         except (UnicodeDecodeError, ValueError):
             return False
         return any(marker in text for marker in VERIFY_HTML_MARKERS)
+
+
+# === 分页限速（审计 M11/D3） ===
+
+# 分页请求间隔下限/上限（秒）。翻页循环在并发信号量之外再加一层
+# 单位时间速率控制，避免高频脉冲触发抖音 461/412、B 站 -412 风控。
+_PAGINATION_THROTTLE_MIN: float = 0.3
+_PAGINATION_THROTTLE_MAX: float = 0.8
+
+
+async def pagination_throttle(
+    min_delay: float = _PAGINATION_THROTTLE_MIN,
+    max_delay: float = _PAGINATION_THROTTLE_MAX,
+) -> None:
+    """分页请求间随机限速。
+
+    在每页请求之间插入 ``[min_delay, max_delay)`` 秒随机等待，用随机化
+    打破固定间隔的机器特征。限速值远小于单页网络耗时，对抓取吞吐影响
+    可忽略，但能显著压低短时请求脉冲。
+
+    参数:
+        min_delay: 最小间隔（秒）。
+        max_delay: 最大间隔（秒），须大于 min_delay。
+    """
+    import random
+
+    low, high = min_delay, max(max_delay, min_delay + 0.01)
+    await asyncio.sleep(random.uniform(low, high))

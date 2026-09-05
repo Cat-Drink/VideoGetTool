@@ -428,6 +428,10 @@ class UserHomeCrawler:
                 )
                 return
             max_cursor = next_cursor_val
+            # 审计 M11/D3：翻页限速，压低短时请求脉冲，降低 461/412 风控概率
+            from crawlers.http_client import pagination_throttle
+
+            await pagination_throttle()
 
     @staticmethod
     def _invoke_progress(
