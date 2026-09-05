@@ -78,6 +78,7 @@
 | 🎥 **长视频下载** | 支持超过 30 分钟的长视频资源下载 |
 | 🔗 **批量链接** | 粘贴多条链接，批量解析并下载 |
 | 👤 **用户主页** | 输入用户主页链接，批量抓取该用户所有作品 |
+| ⏰ **主页订阅（v0.5.0）** | 订阅抖音用户主页，按设定间隔定时扫描；发现新作品后展示供你选择下载或跳过 |
 | 📺 **B 站 DASH 合并** | B 站高品质视频为音视频分离的 DASH 格式，下载后自动通过 ffmpeg 合并（需自行安装 ffmpeg，见[快速上手](#🚀-快速上手)） |
 | 📃 **B 站分 P 选择** | 多 P 视频可逐 P 选择下载，灵活控制下载内容 |
 
@@ -128,7 +129,7 @@
 
 > <em>界面截图正在路上，以下为布局预览 — 实际界面以最新 Release 为准。</em>
 >
-> 测试套件已从 599 项扩展至 **734 项**（新增 49 项 B 站爬虫测试 + 23 项 B 站 API 测试 + 63 项其他测试），覆盖 B 站 WBI 签名、链接解析、DASH 下载、后端 API 等模块。
+> 测试套件已扩展至 **828 项**（覆盖签到算法、链接解析、主页抓取、订阅模式、B 站 WBI 签名与 DASH 下载、后端 API 等模块）。
 
 <br>
 
@@ -136,7 +137,7 @@
 |:---|:---|:---:|
 | 📥 **下载任务** | 查看下载队列，进度、暂停、恢复、重试 | 导航栏第 1 项 |
 | 🔗 **批量抓取** | 粘贴抖音链接，批量解析作品信息并加入下载 | 导航栏第 2 项 |
-| 👤 **主页抓取** | 输入用户主页链接，批量抓取作品 | 导航栏第 3 项 |
+| 👤 **主页抓取** | 输入用户主页链接，批量抓取作品；支持「订阅模式」定时扫描新作品 | 导航栏第 3 项 |
 | 🍪 **Cookie 配置** | 添加 / 测试 / 管理 Cookie，查看详细教程 | 导航栏第 4 项 |
 | 📺 **B 站抓取** | 粘贴 B 站视频链接，解析多 P 信息并下载 | 导航栏第 5 项 |
 | ⚙️ **设置** | 下载目录、并发数、分块大小、元数据格式 | 导航栏第 6 项 |
@@ -285,7 +286,7 @@ npm run tauri dev
 ### 🧪 运行测试
 
 ```powershell
-# Python 后端测试（734 项，覆盖率 ≥ 80%）
+# Python 后端测试（828 项，覆盖率 ≥ 80%）
 pytest
 
 # 仅运行 B 站模块测试
@@ -352,15 +353,16 @@ npm run tauri build -- --bundles nsis
 ```text
 📦 VideoGetTool/
 ├── 📂 backend/            # FastAPI 后端（REST + WebSocket）
-│   ├── 📂 api/            #   路由：crawler / download / bilibili / cookie / config / ws
+│   ├── 📂 api/            #   路由：crawler / download / bilibili / cookie / config / ws / subscription
+│   ├── 📂 services/       #   服务层（订阅扫描器 subscription_scanner）
 │   └── 📄 app.py          #   入口与生命周期管理
 ├── 📂 frontend/           # Tauri 2 + React 19 前端
-│   ├── 📂 src/            #   组件、页面（含 BiliFetchPage）、状态、API 封装
+│   ├── 📂 src/            #   组件、页面（含 BiliFetchPage / 订阅面板）、状态、API 封装
 │   └── 📂 src-tauri/      #   Rust 壳：托盘、窗口、sidecar 启动
 ├── 📂 app/                # Python 数据层（SQLite、模型、仓库）
 ├── 📂 crawlers/           # 爬虫引擎（signer 签名 + bilibili B 站模块）
 ├── 📂 downloader/         # 下载引擎（调度、DASH 合并、进度上报）
-├── 📂 tests/              # Python 测试套件（734 项）
+├── 📂 tests/              # Python 测试套件（828 项）
 └── 📄 pyproject.toml      # 项目元数据与依赖
 ```
 

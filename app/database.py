@@ -1,7 +1,7 @@
 """数据库管理模块。
 
-实现 SQLite 连接管理、表初始化（5 张业务表 + 1 张 schema_version 表）、
-6 个索引创建、默认配置插入、基于 schema_version 的迁移框架。
+实现 SQLite 连接管理、表初始化（7 张业务表 + 1 张 schema_version 表）、
+9 个索引创建、默认配置插入、基于 schema_version 的迁移框架。
 
 表结构 DDL 与设计文档 4.1 节完全一致。
 
@@ -20,7 +20,8 @@ from app import config
 from app.models import now_iso
 
 # === Schema 版本 ===
-SCHEMA_VERSION: int = 4
+# v5（v0.5.0）：新增 subscriptions / subscription_items 两张订阅模式表
+SCHEMA_VERSION: int = 5
 
 # === 建表 SQL（与设计文档 4.1 节完全一致）===
 CREATE_TASKS_SQL = """
@@ -114,7 +115,46 @@ CREATE TABLE IF NOT EXISTS schema_version (
 )
 """
 
-# 6 个索引
+# v0.5.0：订阅模式表
+CREATE_SUBSCRIPTIONS_SQL = """
+CREATE TABLE IF NOT EXISTS subscriptions (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    url             TEXT NOT NULL,
+    sec_user_id     TEXT NOT NULL,
+    name            TEXT DEFAULT '',
+    interval_minutes INTEGER DEFAULT 30,
+    enabled         INTEGER DEFAULT 1,
+    max_items       INTEGER DEFAULT 30,
+    last_scan_at    TEXT,
+    last_scan_status TEXT DEFAULT '',
+    last_scan_error TEXT,
+    created_at      TEXT NOT NULL,
+    updated_at      TEXT NOT NULL
+)
+"""
+
+CREATE_SUBSCRIPTION_ITEMS_SQL = """
+CREATE TABLE IF NOT EXISTS subscription_items (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    subscription_id INTEGER NOT NULL REFERENCES subscriptions(id) ON DELETE CASCADE,
+    aweme_id        TEXT NOT NULL,
+    url             TEXT NOT NULL,
+    title           TEXT,
+    author          TEXT,
+    author_sec_id   TEXT,
+    type            TEXT NOT NULL,
+    duration        TEXT,
+    image_count     INTEGER,
+    cover_url       TEXT,
+    publish_time    TEXT,
+    status          TEXT NOT NULL,
+    created_at      TEXT NOT NULL,
+    updated_at      TEXT NOT NULL,
+    UNIQUE(subscription_id, aweme_id)
+)
+"""
+
+# 6 个索引 + 订阅模式 3 个索引
 CREATE_INDEXES_SQL: list[str] = [
     "CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)",
     "CREATE INDEX IF NOT EXISTS idx_task_items_task_id ON task_items(task_id)",
@@ -122,6 +162,13 @@ CREATE_INDEXES_SQL: list[str] = [
     "CREATE INDEX IF NOT EXISTS idx_task_items_aweme_id ON task_items(aweme_id)",
     "CREATE INDEX IF NOT EXISTS idx_cookies_status ON cookies(status)",
     "CREATE INDEX IF NOT EXISTS idx_metadata_task_item_id ON metadata(task_item_id)",
+    # v0.5.0：订阅模式索引
+    "CREATE INDEX IF NOT EXISTS idx_subscriptions_enabled ON subscriptions(enabled)",
+    (
+        "CREATE INDEX IF NOT EXISTS idx_subscription_items_sub_id "
+        "ON subscription_items(subscription_id)"
+    ),
+    "CREATE INDEX IF NOT EXISTS idx_subscription_items_status ON subscription_items(status)",
 ]
 
 # 所有建表 SQL（顺序：先父表后子表，保证外键引用有效）
@@ -132,6 +179,8 @@ _ALL_CREATE_TABLE_SQL: list[str] = [
     CREATE_COOKIES_SQL,
     CREATE_CONFIG_SQL,
     CREATE_SCHEMA_VERSION_SQL,
+    CREATE_SUBSCRIPTIONS_SQL,
+    CREATE_SUBSCRIPTION_ITEMS_SQL,
 ]
 
 # === 迁移框架 ===
@@ -149,6 +198,8 @@ _VALID_TABLES: frozenset[str] = frozenset(
         "cookies",
         "config",
         "schema_version",
+        "subscriptions",
+        "subscription_items",
     }
 )
 
@@ -223,6 +274,30 @@ def _migrate_v3_to_v4(conn: sqlite3.Connection) -> None:
 
 
 MIGRATIONS[4] = _migrate_v3_to_v4
+
+
+def _migrate_v4_to_v5(conn: sqlite3.Connection) -> None:
+    """v4 → v5：新增订阅模式两张表。
+
+    v0.5.0 抖音用户主页订阅模式：
+        - subscriptions: 订阅记录（URL、sec_user_id、扫描间隔、启用状态等）
+        - subscription_items: 订阅到的作品（新作品 status='new'，待用户处理）
+
+    幂等：CREATE TABLE IF NOT EXISTS。
+    """
+    conn.execute(CREATE_SUBSCRIPTIONS_SQL)
+    conn.execute(CREATE_SUBSCRIPTION_ITEMS_SQL)
+    for sql in (
+        "CREATE INDEX IF NOT EXISTS idx_subscriptions_enabled ON subscriptions(enabled)",
+        "CREATE INDEX IF NOT EXISTS idx_subscription_items_sub_id "
+        "ON subscription_items(subscription_id)",
+        "CREATE INDEX IF NOT EXISTS idx_subscription_items_status "
+        "ON subscription_items(status)",
+    ):
+        conn.execute(sql)
+
+
+MIGRATIONS[5] = _migrate_v4_to_v5
 
 
 def get_connection(db_path: Path | str | None = None) -> sqlite3.Connection:

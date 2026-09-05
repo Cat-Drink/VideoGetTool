@@ -53,6 +53,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         ConfigRepository,
         CookieRepository,
         MetadataRepository,
+        SubscriptionRepository,
         TaskItemRepository,
         TaskRepository,
     )
@@ -62,6 +63,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     ctx.cookie_repo = CookieRepository(ctx.conn)
     ctx.config_repo = ConfigRepository(ctx.conn)
     ctx.metadata_repo = MetadataRepository(ctx.conn)
+    # v0.5.0：订阅模式
+    ctx.subscription_repo = SubscriptionRepository(ctx.conn)
 
     # 4. 爬虫层组件
     from crawlers.cookie_tester import CookieTester
@@ -77,6 +80,17 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     ctx.video_parser = VideoParser(ctx.http_client, ctx.signer)
     ctx.user_home_crawler = UserHomeCrawler(ctx.http_client, ctx.signer)
     ctx.cookie_tester = CookieTester(ctx.http_client, ctx.signer)
+
+    # 4.2. 订阅模式扫描器（v0.5.0）
+    from backend.services.subscription_scanner import SubscriptionScanner
+
+    ctx.subscription_scanner = SubscriptionScanner(
+        subscription_repo=ctx.subscription_repo,
+        url_parser=ctx.url_parser,
+        user_home_crawler=ctx.user_home_crawler,
+        cookie_repo=ctx.cookie_repo,
+        http_client=ctx.http_client,
+    )
 
     # 4.5. B 站爬虫层组件（v0.4.0）
     from crawlers.bilibili import (
@@ -218,6 +232,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # 7. 启动共享 WebSocket 进度轮询任务
     await ws_router._start_shared_push()
+
+    # 7.5. 启动订阅扫描器（v0.5.0）
+    if ctx.subscription_scanner is not None:
+        await ctx.subscription_scanner.start()
     log.info("调度器已启动，断点续传已恢复")
 
     yield  # FastAPI 开始处理请求
@@ -225,6 +243,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # 关闭阶段
     log.info("=== 关闭清理 ===")
     await ws_router._stop_shared_push()
+    # 停止订阅扫描器（v0.5.0）
+    if ctx.subscription_scanner is not None:
+        await ctx.subscription_scanner.stop()
     await ctx.scheduler.stop()
     # 释放 B 站 HTTP 客户端连接池（v0.4.0）
     if ctx.bili_http_client is not None:
@@ -274,6 +295,10 @@ app.include_router(covers_router.router, prefix="/api", tags=["covers"])
 from backend.api import bilibili as bilibili_router
 
 app.include_router(bilibili_router.router, prefix="/api/bilibili", tags=["bilibili"])
+# v0.5.0：订阅模式路由
+from backend.api import subscription as subscription_router
+
+app.include_router(subscription_router.router, prefix="/api/subscription", tags=["subscription"])
 
 
 if __name__ == "__main__":

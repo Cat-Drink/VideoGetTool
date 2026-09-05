@@ -14,9 +14,11 @@ if TYPE_CHECKING:
         ConfigRepository,
         CookieRepository,
         MetadataRepository,
+        SubscriptionRepository,
         TaskItemRepository,
         TaskRepository,
     )
+    from backend.services.subscription_scanner import SubscriptionScanner
     from crawlers.bilibili.bili_http_client import BiliHttpClient
     from crawlers.bilibili.bili_signer import BiliSigner
     from crawlers.bilibili.bili_url_parser import BiliURLParser
@@ -41,6 +43,9 @@ class AppContext:
         self.cookie_repo: CookieRepository | None = None
         self.config_repo: ConfigRepository | None = None
         self.metadata_repo: MetadataRepository | None = None
+        # v0.5.0：订阅模式
+        self.subscription_repo: SubscriptionRepository | None = None
+        self.subscription_scanner: SubscriptionScanner | None = None
         self.scheduler: Scheduler | None = None
         self.http_client: HttpClient | None = None
         self.signer: Signer | None = None

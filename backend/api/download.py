@@ -64,69 +64,35 @@ class TaskItemResponse(BaseModel):
     local_path: str | None
 
 
-# === API 端点 ===
+# === 内部辅助 ===
 
 
-@router.get("/tasks", response_model=list[TaskResponse])
-async def list_tasks():
-    """获取所有下载任务列表。"""
-    if ctx.task_repo is None:
-        raise HTTPException(status_code=503, detail="Service not ready")
-    tasks = ctx.task_repo.get_all()
-    return [
-        TaskResponse(
-            id=task.id,
-            source_type=task.source_type,
-            source_url=task.source_url,
-            status=task.status,
-            total_items=task.total_items,
-            completed_items=task.completed_items,
-            created_at=task.created_at,
-            updated_at=task.updated_at,
-            download_dir=task.download_dir,
-        )
-        for task in tasks
-    ]
+async def enqueue_download_items(
+    source_type: str,
+    source_url: str | None,
+    items: list[dict],
+    download_dir: str | None = None,
+) -> int:
+    """创建下载任务并入队调度（供 start_download 与订阅模式共用）。
 
+    流程：
+        1. 创建 Task（source_type / source_url / download_dir）
+        2. 逐项解析真实媒体地址（前端未提供时用 aweme_id 二次解析 detail 接口）
+        3. 创建 TaskItems 并更新任务进度
+        4. 交给 Scheduler 入队
 
-@router.get("/tasks/{task_id}/items", response_model=list[TaskItemResponse])
-async def list_task_items(task_id: int):
-    """获取指定任务的下载项列表。"""
-    if ctx.task_item_repo is None:
-        raise HTTPException(status_code=503, detail="Service not ready")
-    items = ctx.task_item_repo.get_by_task(task_id)
-    return [
-        TaskItemResponse(
-            id=item.id,
-            task_id=item.task_id,
-            aweme_id=item.aweme_id,
-            url=item.url,
-            title=item.title,
-            author=item.author,
-            type=item.type,
-            status=item.status,
-            downloaded_bytes=item.downloaded_bytes,
-            total_bytes=item.total_bytes,
-            progress=(
-                100.0
-                if item.status == "completed"
-                else (
-                    (item.downloaded_bytes / max(item.total_bytes, 1)) * 100
-                    if item.total_bytes > 0
-                    else 0.0
-                )
-            ),
-            cover_url=item.cover_url,
-            fail_reason=item.fail_reason,
-            local_path=item.local_path,
-        )
-        for item in items
-    ]
+    Args:
+        source_type: 任务来源类型（single/batch/user_home/subscription 等）
+        source_url: 来源链接（可空）
+        items: 待下载 item dict 列表
+        download_dir: 下载目录，None 时使用配置默认值
 
+    Returns:
+        新建任务 id
 
-@router.post("/start")
-async def start_download(req: StartDownloadRequest):
-    """启动下载任务。"""
+    Raises:
+        HTTPException(503): 基础设施未就绪
+    """
     if (
         ctx.task_repo is None
         or ctx.task_item_repo is None
@@ -135,21 +101,21 @@ async def start_download(req: StartDownloadRequest):
     ):
         raise HTTPException(status_code=503, detail="Service not ready")
 
-    download_dir = req.download_dir or ctx.config_repo.get("download_dir") or ""
+    download_dir = download_dir or ctx.config_repo.get("download_dir") or ""
 
     # 创建任务
     task = Task(
         id=None,
-        source_type=req.source_type,
-        source_url=req.source_url,
+        source_type=source_type,
+        source_url=source_url,
         status=TaskStatus.PENDING.value,
         download_dir=download_dir,
     )
     task_id = ctx.task_repo.create(task)
 
-    # 如果有传入 items，直接创建 task_items 并入队
-    if req.items:
-        items = []
+    # 有 items 时创建 task_items 并入队
+    if items:
+        task_items = []
         # 获取有效 Cookie（供二次解析真实媒体地址）
         cookie = ""
         if ctx.cookie_repo is not None:
@@ -158,7 +124,7 @@ async def start_download(req: StartDownloadRequest):
                 cookie = valid_cookie.content
                 ctx.cookie_repo.update_last_used(valid_cookie.id, now_iso())
 
-        for item_data in req.items:
+        for item_data in items:
             item_type = item_data.get("type", "video")
             aweme_id = item_data.get("aweme_id")
             media_url = item_data.get("no_watermark_url") or ""
@@ -224,14 +190,86 @@ async def start_download(req: StartDownloadRequest):
             )
             item_id = ctx.task_item_repo.create(task_item)
             task_item.id = item_id
-            items.append(task_item)
+            task_items.append(task_item)
 
         # 更新任务总数
-        ctx.task_repo.update_progress(task_id, 0, len(items))
+        ctx.task_repo.update_progress(task_id, 0, len(task_items))
 
         # 入队调度
-        ctx.scheduler.add_task_items(items)
+        ctx.scheduler.add_task_items(task_items)
 
+    return task_id
+
+
+# === API 端点 ===
+
+
+@router.get("/tasks", response_model=list[TaskResponse])
+async def list_tasks():
+    """获取所有下载任务列表。"""
+    if ctx.task_repo is None:
+        raise HTTPException(status_code=503, detail="Service not ready")
+    tasks = ctx.task_repo.get_all()
+    return [
+        TaskResponse(
+            id=task.id,
+            source_type=task.source_type,
+            source_url=task.source_url,
+            status=task.status,
+            total_items=task.total_items,
+            completed_items=task.completed_items,
+            created_at=task.created_at,
+            updated_at=task.updated_at,
+            download_dir=task.download_dir,
+        )
+        for task in tasks
+    ]
+
+
+@router.get("/tasks/{task_id}/items", response_model=list[TaskItemResponse])
+async def list_task_items(task_id: int):
+    """获取指定任务的下载项列表。"""
+    if ctx.task_item_repo is None:
+        raise HTTPException(status_code=503, detail="Service not ready")
+    items = ctx.task_item_repo.get_by_task(task_id)
+    return [
+        TaskItemResponse(
+            id=item.id,
+            task_id=item.task_id,
+            aweme_id=item.aweme_id,
+            url=item.url,
+            title=item.title,
+            author=item.author,
+            type=item.type,
+            status=item.status,
+            downloaded_bytes=item.downloaded_bytes,
+            total_bytes=item.total_bytes,
+            progress=(
+                100.0
+                if item.status == "completed"
+                else (
+                    (item.downloaded_bytes / max(item.total_bytes, 1)) * 100
+                    if item.total_bytes > 0
+                    else 0.0
+                )
+            ),
+            cover_url=item.cover_url,
+            fail_reason=item.fail_reason,
+            local_path=item.local_path,
+        )
+        for item in items
+    ]
+
+
+@router.post("/start")
+async def start_download(req: StartDownloadRequest):
+    """启动下载任务。"""
+    task_id = await enqueue_download_items(
+        source_type=req.source_type,
+        source_url=req.source_url,
+        items=req.items or [],
+        download_dir=req.download_dir,
+    )
     return {"task_id": task_id, "message": "下载任务已创建"}
 
 

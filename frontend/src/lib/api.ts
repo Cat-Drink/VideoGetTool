@@ -341,3 +341,117 @@ export async function biliSetCookie(cookie: string, test: boolean = true): Promi
 export async function biliClearCookie(): Promise<{ message: string }> {
   return request("/bilibili/cookie", { method: "DELETE" });
 }
+
+// ============ 订阅模式 API（v0.5.0）============
+
+export interface SubscriptionResponse {
+  id: number;
+  url: string;
+  sec_user_id: string;
+  name: string;
+  interval_minutes: number;
+  enabled: number;
+  max_items: number;
+  last_scan_at: string | null;
+  last_scan_status: string;
+  last_scan_error: string | null;
+  new_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SubscriptionItemResponse {
+  id: number;
+  subscription_id: number;
+  aweme_id: string;
+  url: string;
+  title: string | null;
+  author: string | null;
+  type: string;
+  duration: string | null;
+  image_count: number | null;
+  cover_url: string | null;
+  publish_time: string | null;
+  status: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ScanResultResponse {
+  subscription_id: number;
+  new_count: number;
+  scanned_items: number;
+  status: string;
+  error: string | null;
+}
+
+export async function fetchSubscriptions(): Promise<SubscriptionResponse[]> {
+  return request("/subscription/list");
+}
+
+export async function addSubscription(params: {
+  url: string;
+  name?: string;
+  interval_minutes?: number;
+  max_items?: number;
+}): Promise<SubscriptionResponse> {
+  return request("/subscription/add", {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
+}
+
+export async function updateSubscription(
+  subId: number,
+  params: {
+    name?: string;
+    interval_minutes?: number;
+    max_items?: number;
+    enabled?: number;
+  },
+): Promise<SubscriptionResponse> {
+  return request(`/subscription/${subId}/update`, {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
+}
+
+export async function deleteSubscription(subId: number): Promise<{ message: string }> {
+  return request(`/subscription/${subId}`, { method: "DELETE" });
+}
+
+export async function scanSubscription(subId: number): Promise<ScanResultResponse> {
+  return request(`/subscription/${subId}/scan`, { method: "POST" });
+}
+
+export async function fetchSubscriptionItems(
+  subId: number,
+  status?: string,
+): Promise<SubscriptionItemResponse[]> {
+  const query = status ? `?status=${encodeURIComponent(status)}` : "";
+  return request(`/subscription/${subId}/items${query}`);
+}
+
+export async function acceptSubscriptionItem(
+  itemId: number,
+): Promise<{ message: string; task_id: number; item_id: number }> {
+  return request(`/subscription/items/${itemId}/accept`, { method: "POST" });
+}
+
+export async function skipSubscriptionItem(
+  itemId: number,
+): Promise<{ message: string; item_id: number }> {
+  return request(`/subscription/items/${itemId}/skip`, { method: "POST" });
+}
+
+export async function skipAllNewItems(
+  subId: number,
+): Promise<{ message: string; count: number }> {
+  return request(`/subscription/${subId}/items/skip-all-new`, { method: "POST" });
+}
+
+export async function scanAndCollect(
+  subId: number,
+): Promise<{ message: string; queued: number; task_id: number; scan_status: string; scan_error: string | null }> {
+  return request(`/subscription/${subId}/scan-and-collect`, { method: "POST" });
+}

@@ -13,11 +13,12 @@ from pathlib import Path
 import pytest
 
 from app import database
-from app.models import Cookie, Task, TaskItem
+from app.models import Cookie, Subscription, Task, TaskItem
 from app.repositories import (
     ConfigRepository,
     CookieRepository,
     MetadataRepository,
+    SubscriptionRepository,
     TaskItemRepository,
     TaskRepository,
 )
@@ -70,6 +71,26 @@ def config_repo(memory_db: sqlite3.Connection) -> ConfigRepository:
 def metadata_repo(memory_db: sqlite3.Connection) -> MetadataRepository:
     """返回 MetadataRepository 实例。"""
     return MetadataRepository(memory_db)
+
+
+@pytest.fixture
+def subscription_repo(memory_db: sqlite3.Connection) -> SubscriptionRepository:
+    """返回 SubscriptionRepository 实例（v0.5.0 订阅模式）。"""
+    return SubscriptionRepository(memory_db)
+
+
+@pytest.fixture
+def sample_subscription() -> Subscription:
+    """返回一个可插入的 Subscription 实例（id=None）。"""
+    return Subscription(
+        id=None,
+        url="https://www.douyin.com/user/MS4wLjABAAAA-test",
+        sec_user_id="MS4wLjABAAAA-test",
+        name="测试订阅",
+        interval_minutes=30,
+        enabled=1,
+        max_items=30,
+    )
 
 
 @pytest.fixture

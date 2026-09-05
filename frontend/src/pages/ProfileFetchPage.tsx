@@ -6,6 +6,7 @@ import { Badge } from "../components/ui/badge";
 import { proxyImageUrl } from "../lib/api";
 import { useParseStore } from "../store/parseStore";
 import { useUiInputStore } from "../store/uiInputStore";
+import SubscriptionPanel from "../components/app/SubscriptionPanel";
 
 /** ISO8601 时间戳 → 短格式展示 */
 function formatTime(iso: string): string {
@@ -22,7 +23,39 @@ function formatTime(iso: string): string {
   }
 }
 
-export default function ProfileFetchPage() {
+/** 模式切换标签 */
+function HomeModeTabs({
+  mode,
+  onChange,
+}: {
+  mode: "manual" | "subscription";
+  onChange: (m: "manual" | "subscription") => void;
+}) {
+  return (
+    <div className="flex items-center gap-1 px-6 pt-4">
+      {(
+        [
+          { key: "manual", label: "手动抓取" },
+          { key: "subscription", label: "订阅模式" },
+        ] as const
+      ).map((tab) => (
+        <button
+          key={tab.key}
+          className={`px-4 py-1.5 rounded-t-sm text-sm transition-colors ${
+            mode === tab.key
+              ? "bg-purple-100 text-purple-600 font-medium border-b-2 border-purple-500"
+              : "text-text-secondary hover:text-text-primary border-b-2 border-transparent"
+          }`}
+          onClick={() => onChange(tab.key)}
+        >
+          {tab.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function ManualFetchView() {
   const { profileHomeUrl: homeUrl, setProfileHomeUrl: setHomeUrl } = useUiInputStore();
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
@@ -392,6 +425,20 @@ export default function ProfileFetchPage() {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/** 主页抓取页：手动抓取 / 订阅模式 */
+export default function ProfileFetchPage() {
+  const [mode, setMode] = useState<"manual" | "subscription">("manual");
+
+  return (
+    <div className="flex flex-col h-full">
+      <HomeModeTabs mode={mode} onChange={setMode} />
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {mode === "manual" ? <ManualFetchView /> : <SubscriptionPanel />}
+      </div>
     </div>
   );
 }
