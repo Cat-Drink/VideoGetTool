@@ -65,6 +65,20 @@ manager = ConnectionManager()
 # 替代原先每个连接各自轮询（N 个连接 = N 次/秒查询）的模式
 _push_stop_event: asyncio.Event | None = None
 
+# v0.4.2：WebSocket 安全加固（审计 P0-2）
+# - Origin 校验：浏览器页面必有 Origin，非白名单即拒绝；
+#   Tauri 原生插件（Rust 侧）连接无 Origin → 放行（N4）
+# - 连接数上限：防止恶意页面开大量 socket 拖垮 sidecar（轻量 DoS）
+_MAX_WS_CONNECTIONS: int = 16
+_WS_ALLOWED_ORIGINS: frozenset[str] = frozenset(
+    {
+        "tauri://localhost",
+        "http://tauri.localhost",
+        "https://tauri.localhost",
+        "http://localhost:1420",  # Vite 开发服务器
+    }
+)
+
 
 async def _start_shared_push() -> None:
     """启动共享进度轮询任务。"""
@@ -85,7 +99,22 @@ async def websocket_endpoint(ws: WebSocket):
 
     前端连接后，进度更新由调度器回调（_on_progress）和共享轮询任务
     共同推送，每个连接不再独立轮询数据库。
+
+    安全校验（P0-2）：Host 白名单 → Origin 白名单（允许缺失）→ 连接数上限。
     """
+    from backend.security import is_host_allowed
+
+    if not is_host_allowed(ws.headers.get("host")):
+        await ws.close(code=1008, reason="host not allowed")
+        return
+    origin = ws.headers.get("origin", "")
+    if origin and origin not in _WS_ALLOWED_ORIGINS:
+        await ws.close(code=1008, reason="origin not allowed")
+        return
+    if manager.active_count >= _MAX_WS_CONNECTIONS:
+        await ws.close(code=1013, reason="too many connections")
+        return
+
     await manager.connect(ws)
     logger.info("WebSocket 客户端已连接，当前连接数: %d", manager.active_count)
 
@@ -163,6 +192,7 @@ async def _push_progress_updates(stop_event: asyncio.Event) -> None:
                         }
                     )
         except Exception:
-            pass
+            # 审计 M2：裸 except:pass 吞异常导致广播通道故障无任何可观测性
+            logger.exception("共享进度推送循环异常")
 
         await asyncio.sleep(1)

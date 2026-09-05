@@ -23,6 +23,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app import config, database
+from backend.security import HostGuardMiddleware
 from app.logger import get_logger, setup_logger
 from backend.api import config as config_router
 from backend.api import cookie as cookie_router
@@ -275,6 +276,10 @@ ALLOWED_ORIGINS: list[str] = [
     "https://tauri.localhost",
     "http://localhost:1420",  # Vite 开发服务器
 ]
+# Host 守卫必须先于 CORS 注册：先拒绝非法 Host（DNS rebinding），再谈同源读。
+# 注意：BaseHTTPMiddleware 不处理 WebSocket scope，WS 端点内自行调用
+# backend.security.is_host_allowed 校验（见 backend/api/ws.py）。
+app.add_middleware(HostGuardMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
