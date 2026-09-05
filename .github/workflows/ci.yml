@@ -33,8 +33,10 @@ jobs:
         uses: actions/checkout@v4
 
       # 审计 S5：secrets 硬编码扫描（gitleaks，含历史提交）
+      # 注：固定官方稳定版 v2.3.1（禁止裸 @v2）——旧 v2 标签下载
+      # gitleaks_8.24.3_windows_x64.tar.gz 返回 404 导致 Windows runner 失败。
       - name: Gitleaks 密钥扫描
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@v2.3.1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_LICENSE: ""
