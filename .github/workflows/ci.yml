@@ -17,6 +17,17 @@ on:
     branches: [master]
   pull_request:
     branches: [master]
+  # 审计 M12/A4：签名端到端冒烟（手动触发）。
+  # 说明：抖音签名参数过期无法由 CI 定时感知；定时任务需在 repo secrets
+  # 存放真实账号凭据，风险大于收益，故采用 workflow_dispatch 手动触发 +
+  # 发布前 checklist（见 docs/audit/2026-09-05-security-audit-refined-guide.md §9 演进 4）。
+  workflow_dispatch:
+    inputs:
+      aweme_id:
+        description: 用于签名冒烟的抖音作品 ID
+        required: true
+        default: "7433722704643820875"
+        type: string
 
 # 同分支并发推送时取消旧的任务，节省 CI 资源
 concurrency:
@@ -142,3 +153,40 @@ jobs:
         run: |
           cd frontend
           npm run build
+
+  # 审计 M12/A4：签名端到端冒烟（手动触发，不随 push/PR 自动运行）。
+  # 需要 repo secret DOUYIN_TEST_COOKIE（开发者自备的抖音登录 Cookie）；
+  # 未配置 secret 时在 step 内判空跳过，不阻塞主流程。
+  # 注：GitHub Actions 禁止在 job 级 if 中引用 secrets 上下文（workflow 解析失败），
+  #     故 secret 判空必须下移到 step 级（经 env 中转）。
+  signer-live-smoke:
+    name: 签名端到端冒烟 (M12)
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 设置 Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: 安装 Python 依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: 检查凭据并运行签名端到端冒烟
+        shell: bash
+        env:
+          DOUYIN_TEST_COOKIE: ${{ secrets.DOUYIN_TEST_COOKIE }}
+        run: |
+          if [ -z "$DOUYIN_TEST_COOKIE" ]; then
+            echo "未配置 DOUYIN_TEST_COOKIE secret，跳过签名冒烟（手动触发时请先在仓库配置该 secret）。"
+            exit 0
+          fi
+          python scripts/signer_live_smoke.py --aweme-id "${{ github.event.inputs.aweme_id }}"

@@ -356,17 +356,23 @@ class BiliVideoParser:
         audio_streams: list[BiliStream] = []
 
         if dash_data:
-            # 视频流
+            # 视频流（S4：空 URL 流跳过，backup_url 为空列表时不再回退成 ""）
             for v in dash_data.get("video") or []:
                 if not isinstance(v, dict):
+                    continue
+                url = v.get("base_url") or ""
+                backup = v.get("backup_url") or []
+                if not url and not backup:
+                    continue  # 空流跳过
+                if not url:
+                    url = backup[0] or ""
+                if not url:
                     continue
                 video_streams.append(
                     BiliStream(
                         id=v.get("id", 0),
-                        url=v.get("base_url") or v.get("backup_url", [""])[0] or "",
-                        base_url=(
-                            (v.get("backup_url") or [None])[0] if v.get("backup_url") else None
-                        ),
+                        url=url,
+                        base_url=backup[0] if backup else None,
                         bandwidth=v.get("bandwidth", 0),
                         mime_type=v.get("mime_type", ""),
                         codecs=v.get("codecs", ""),
@@ -374,17 +380,23 @@ class BiliVideoParser:
                         height=v.get("height", 0),
                     )
                 )
-            # 音频流
+            # 音频流（S4：同跳过规则）
             for a in dash_data.get("audio") or []:
                 if not isinstance(a, dict):
+                    continue
+                url = a.get("base_url") or ""
+                backup = a.get("backup_url") or []
+                if not url and not backup:
+                    continue
+                if not url:
+                    url = backup[0] or ""
+                if not url:
                     continue
                 audio_streams.append(
                     BiliStream(
                         id=a.get("id", 0),
-                        url=a.get("base_url") or a.get("backup_url", [""])[0] or "",
-                        base_url=(
-                            (a.get("backup_url") or [None])[0] if a.get("backup_url") else None
-                        ),
+                        url=url,
+                        base_url=backup[0] if backup else None,
                         bandwidth=a.get("bandwidth", 0),
                         mime_type=a.get("mime_type", ""),
                         codecs=a.get("codecs", ""),
@@ -397,6 +409,10 @@ class BiliVideoParser:
         durl = data.get("durl") or []
         if durl and isinstance(durl, list) and len(durl) > 0:
             single_url = durl[0].get("url") or ""
+
+        # S4：DASH 响应但解析后全空 → 明确报错而非静默返回空流
+        if dash_data and not video_streams and not audio_streams and not single_url:
+            raise VideoNotFoundError(f"无可用的视频播放流: bvid={bvid}, cid={cid} (DASH 响应为空)")
 
         return BiliPlayUrl(
             bvid=bvid,

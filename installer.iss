@@ -1,6 +1,10 @@
 ; ==============================================================================
 ; VideoGetTool Inno Setup 安装脚本
 ;
+; 【发布通道声明】当前官方发布通道为 Tauri NSIS 安装包
+; （.github/workflows/release.yml → npm run tauri build -- --bundles nsis）。
+; 本 Inno 脚本为历史遗留备用产物，保留用于语言/权限参考，不再作为发布入口。
+;
 ; 严格遵循规范文档 8.2 节与附录 E。
 ; 生成 Windows 安装包：dist/VideoGetTool_Setup_v0.2.0.exe
 ;
