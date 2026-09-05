@@ -95,6 +95,14 @@ async def _run_smoke(cookie: str, aweme_id: str) -> int:
 - `DOUYIN_TEST_COOKIE` 环境变量默认与 `--cookie` 优先级
 - 无 Cookie / 空 Cookie → SKIP（退出码 2）+ 不碰网络
 
+### 2.4 复核补齐（对照 v2 指南逐项二次核验发现的两处遗漏）
+
+| 项 | 遗漏点 | 本次补齐 |
+|---|---|---|
+| P1-8（S4 后半） | `_parse_playurl_response` 仍是脆弱写法：`backup_url` 空列表回退 `[""][0]` → 空 URL 流被 append；DASH 全空时静默返回空流 | `crawlers/bilibili/bili_video_parser.py`：视频/音频流空 URL 跳过（base_url 与 backup_url 双空 → `continue`）；DASH 响应解析后全空 → 抛 `VideoNotFoundError`；新增 `tests/test_bilibili/test_bili_playurl_empty_stream.py`（7 项） |
+| P1-6（N1 后半） | covers IPv6 防护修复已落地但**无单测**（回归保护缺失） | `tests/test_api_covers.py` 新增 `test_ipv6_target_rejected_not_crash`：`::1`/`fe80::`/`fc00::`/`::ffff:127.0.0.1`/`::ffff:10.0.0.5` 拒绝、公网 IPv6 放行、非法串拦截；覆盖修复前 `TypeError → 500` 崩溃路径 |
+| P2-5（M8 后半） | installer.iss 语言重复已修，但**缺发布通道标注**（v2 §6.5 要求"保留文件 + 头注释标注 Tauri NSIS 为当前发布通道"） | `installer.iss` 文件头新增发布通道声明（release.yml 产线 = Tauri NSIS，Inno 为历史遗留备用） |
+
 ---
 
 ## 3. 验证结果（全部通过）

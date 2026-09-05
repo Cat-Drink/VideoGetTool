@@ -115,6 +115,25 @@ class TestValidateUrl:
         # 网段常量本身可识别
         assert _BENCHMARK_NETWORK.num_addresses > 0
 
+    def test_ipv6_target_rejected_not_crash(self) -> None:
+        """IPv6 地址被正确分类而非抛 TypeError（审计 N1/P1-6）。
+
+        修复前：``addr in _BENCHMARK_NETWORK``（IPv4 网段）对 IPv6Address
+        抛 ``TypeError`` → 封面代理 500。修复后：IPv6 与 IPv4 走同一条
+        is_private/is_loopback/... 判断链，危险地址被拒、公网地址放行。
+        """
+        # 纯 IPv6 回环/私网/链路本地 → 拒绝
+        assert _is_blocked_ip("::1")
+        assert _is_blocked_ip("fe80::1")
+        assert _is_blocked_ip("fc00::1")
+        # IPv4-mapped IPv6（::ffff: 前缀）—— 修复前直接崩溃
+        assert _is_blocked_ip("::ffff:127.0.0.1")
+        assert _is_blocked_ip("::ffff:10.0.0.5")
+        # 公网 IPv6 与公网 IPv4 对称放行（SSRF 防护目标是内网/元数据，非公网）
+        assert not _is_blocked_ip("2001:4860:4860::8888")
+        # 非法 IP 字符串 → 拦截（保守策略）
+        assert _is_blocked_ip("not-an-ip")
+
 
 # === proxy_cover 端点 ===
 
