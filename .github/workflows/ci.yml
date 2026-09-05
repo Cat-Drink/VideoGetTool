@@ -156,10 +156,12 @@ jobs:
 
   # 审计 M12/A4：签名端到端冒烟（手动触发，不随 push/PR 自动运行）。
   # 需要 repo secret DOUYIN_TEST_COOKIE（开发者自备的抖音登录 Cookie）；
-  # 未配置 secret 时 job 直接跳过，不阻塞主流程。
+  # 未配置 secret 时在 step 内判空跳过，不阻塞主流程。
+  # 注：GitHub Actions 禁止在 job 级 if 中引用 secrets 上下文（workflow 解析失败），
+  #     故 secret 判空必须下移到 step 级（经 env 中转）。
   signer-live-smoke:
     name: 签名端到端冒烟 (M12)
-    if: github.event_name == 'workflow_dispatch' && secrets.DOUYIN_TEST_COOKIE != ''
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
 
     steps:
@@ -178,8 +180,13 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: 运行签名端到端冒烟
+      - name: 检查凭据并运行签名端到端冒烟
+        shell: bash
         env:
           DOUYIN_TEST_COOKIE: ${{ secrets.DOUYIN_TEST_COOKIE }}
         run: |
+          if [ -z "$DOUYIN_TEST_COOKIE" ]; then
+            echo "未配置 DOUYIN_TEST_COOKIE secret，跳过签名冒烟（手动触发时请先在仓库配置该 secret）。"
+            exit 0
+          fi
           python scripts/signer_live_smoke.py --aweme-id "${{ github.event.inputs.aweme_id }}"
