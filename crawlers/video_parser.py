@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Literal
 from app.logger import get_logger
 from crawlers import api_spec
 from crawlers.exceptions import VideoNotFoundError
+from crawlers.utils import safe_int
 from downloader.constants import LONG_VIDEO_DURATION_THRESHOLD
 
 if TYPE_CHECKING:
@@ -534,8 +535,8 @@ class VideoParser:
         # self._dump_detail_payload(aweme_id, payload)
 
         status_code = payload.get("status_code")
-        # 抖音 API 有时返回字符串，做防御性 int 转换
-        if int(status_code or 0) != 0:
+        # 审计 S8：抖音 API 有时返回字符串/非数字，用 safe_int 防 ValueError
+        if safe_int(status_code) != 0:
             status_msg = payload.get("status_msg") or "未知错误"
             logger.warning(
                 "作品详情业务错误: aweme_id=%s status_code=%s msg=%s",

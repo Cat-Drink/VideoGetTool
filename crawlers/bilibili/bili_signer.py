@@ -17,8 +17,7 @@ buvid3 是 B 站客户端指纹，用于标识设备，需通过 Cookie 或请�
 from __future__ import annotations
 
 import hashlib
-import random
-import string
+import secrets
 import time
 import uuid
 from datetime import datetime
@@ -253,10 +252,14 @@ class BiliSigner:
         返回:
             buvid3 字符串（如 "XX20260825120000-ab12cd-1-uuidinfoc"）。
         """
-        prefix = random.choice(string.ascii_uppercase) + random.choice(string.ascii_uppercase)
+        # 审计 S7：随机字母/hex 用 secrets（加密安全随机）替代 random，
+        # 降低同批次 buvid3 可聚类性（风控关联；非安全必须项）。
+        prefix = secrets.choice("ABCDEFGHIJKLMNOPQRSTUVWXYZ") + secrets.choice(
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        )
         now = datetime.now()
         timestamp = now.strftime("%Y%m%d%H%M%S")
-        rand_hex = format(random.randint(0, 0xFFFFFF), "06x")
+        rand_hex = format(secrets.randbelow(0xFFFFFF), "06x")
         device_id = uuid.uuid4().hex[:8]
         return f"{prefix}{timestamp}-{rand_hex}-1-{device_id}infoc"
 

@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Literal
 from app.logger import get_logger
 from crawlers import api_spec
 from crawlers.exceptions import UserNotFoundError
+from crawlers.utils import safe_int
 from downloader.constants import LONG_VIDEO_DURATION_THRESHOLD
 
 if TYPE_CHECKING:
@@ -364,8 +365,8 @@ class UserHomeCrawler:
                 raise UserNotFoundError(f"主页响应非 JSON: {e}") from e
 
             status_code = payload.get("status_code")
-            # 抖音 API 有时返回字符串，做防御性 int 转换
-            if int(status_code or 0) != 0:
+            # 审计 S8：抖音 API 有时返回字符串/非数字，用 safe_int 防 ValueError
+            if safe_int(status_code) != 0:
                 status_msg = payload.get("status_msg") or "未知错误"
                 logger.warning(
                     "主页业务错误: sec_user_id=%s status_code=%s msg=%s",
@@ -398,8 +399,8 @@ class UserHomeCrawler:
             self._invoke_progress(progress_callback, fetched_count)
 
             # 终止条件 1：无更多作品
-            # 抖音接口有时返回字符串 "1"/"0"，做防御性 int 转换
-            if int(has_more or 0) != 1:
+            # 抖音接口有时返回字符串 "1"/"0"，用 safe_int 做防御性转换
+            if safe_int(has_more) != 1:
                 return
             # 终止条件 2：游标无效（None 或非数字）
             try:

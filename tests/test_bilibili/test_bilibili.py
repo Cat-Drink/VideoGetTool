@@ -84,8 +84,8 @@ class TestBiliSigner:
         assert signer._keys_expired is True
 
     def test_wbi_key_cache_ttl(self) -> None:
-        """WBI 密钥缓存 TTL 为 24 小时。"""
-        assert WBI_KEY_CACHE_TTL == 86400
+        """WBI 密钥缓存 TTL 为 12 小时（审计 S10，随 B 站轮换收紧）。"""
+        assert WBI_KEY_CACHE_TTL == 43200
 
     def test_sign_adds_wts_and_wrid(self) -> None:
         """sign() 正常执行后应添加 wts 和 w_rid 参数。"""

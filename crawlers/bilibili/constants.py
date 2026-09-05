@@ -98,4 +98,6 @@ REQUEST_TIMEOUT_CONNECT: float = 10.0
 REQUEST_TIMEOUT_READ: float = 30.0
 
 # WBI 密钥缓存有效期（秒）
-WBI_KEY_CACHE_TTL: int = 86400  # 24 小时
+# 审计 S10：B 站会轮换密钥，24h 缓存偏长；缩短至 12h 降低
+# 「密钥已轮换但本地仍缓存旧密钥」导致的签名失败窗口
+WBI_KEY_CACHE_TTL: int = 43200  # 12 小时
