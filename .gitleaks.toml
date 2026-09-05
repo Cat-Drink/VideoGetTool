@@ -3,6 +3,8 @@
 # See: tests/test_bilibili/test_bilibili.py (lines 94,95,114,115,119,120,121)
 # They are public constants, not actual secrets
 
-[[allowlist]]
+[allowlist]
 description = "Bilibili public WBI signing test constants (from bilibili-API-collect official public implementation)"
-regex = "(?i)(img_key|sub_key|mix_key)\\s*=\\s*[\"']?(7cd084941338484aae1ad9425b84077c|4932caff0ff746eab6f01bf08b70ac45|ea1db124af3c7062474693fa704f4ff8)"
+regexes = [
+  "(?i)(img_key|sub_key|mix_key)\\s*=\\s*[\"']?(7cd084941338484aae1ad9425b84077c|4932caff0ff746eab6f01bf08b70ac45|ea1db124af3c7062474693fa704f4ff8)",
+]
