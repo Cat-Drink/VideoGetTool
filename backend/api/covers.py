@@ -141,9 +141,7 @@ class _SSRFGuardTransport(AsyncHTTPTransport):
             # 改用 loop.getaddrinfo 协程化解析。
             loop = asyncio.get_running_loop()
             try:
-                addrinfos = await loop.getaddrinfo(
-                    host, port, type=socket.SOCK_STREAM
-                )
+                addrinfos = await loop.getaddrinfo(host, port, type=socket.SOCK_STREAM)
             except OSError as exc:
                 raise httpx.ConnectError(f"DNS resolution failed for {host}: {exc}") from exc
             for info in addrinfos:
