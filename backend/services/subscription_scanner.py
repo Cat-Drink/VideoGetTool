@@ -101,9 +101,7 @@ class SubscriptionScanner:
             except Exception:
                 logger.exception("订阅扫描循环异常")
             with contextlib.suppress(TimeoutError, asyncio.CancelledError):
-                await asyncio.wait_for(
-                    self._stop_event.wait(), timeout=self.tick_seconds
-                )
+                await asyncio.wait_for(self._stop_event.wait(), timeout=self.tick_seconds)
 
     # === 扫描 ===
 

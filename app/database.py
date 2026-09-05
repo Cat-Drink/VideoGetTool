@@ -291,8 +291,7 @@ def _migrate_v4_to_v5(conn: sqlite3.Connection) -> None:
         "CREATE INDEX IF NOT EXISTS idx_subscriptions_enabled ON subscriptions(enabled)",
         "CREATE INDEX IF NOT EXISTS idx_subscription_items_sub_id "
         "ON subscription_items(subscription_id)",
-        "CREATE INDEX IF NOT EXISTS idx_subscription_items_status "
-        "ON subscription_items(status)",
+        "CREATE INDEX IF NOT EXISTS idx_subscription_items_status " "ON subscription_items(status)",
     ):
         conn.execute(sql)
 

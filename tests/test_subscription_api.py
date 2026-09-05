@@ -109,9 +109,7 @@ class TestListAdd:
         """非主页链接返回 400。"""
         video_url = "https://www.douyin.com/video/123"
         ctx.url_parser.parse.return_value = _video_parsed(video_url, "123")
-        response = api_client.post(
-            "/api/subscription/add", json={"url": video_url}
-        )
+        response = api_client.post("/api/subscription/add", json={"url": video_url})
         assert response.status_code == 400
         assert "不是抖音用户主页" in response.json()["detail"]
 
@@ -130,12 +128,8 @@ class TestListAdd:
         """重复订阅同一主页返回 409。"""
         home_url = "https://www.douyin.com/user/MS4wLjABAAAA-test"
         ctx.url_parser.parse.return_value = _home_parsed(home_url, "MS4wLjABAAAA-test")
-        assert api_client.post(
-            "/api/subscription/add", json={"url": home_url}
-        ).status_code == 200
-        response = api_client.post(
-            "/api/subscription/add", json={"url": home_url}
-        )
+        assert api_client.post("/api/subscription/add", json={"url": home_url}).status_code == 200
+        response = api_client.post("/api/subscription/add", json={"url": home_url})
         assert response.status_code == 409
 
 
@@ -145,9 +139,7 @@ class TestUpdateDelete:
     def _create(self, api_client: TestClient) -> int:
         home_url = "https://www.douyin.com/user/MS4wLjABAAAA-test"
         ctx.url_parser.parse.return_value = _home_parsed(home_url, "MS4wLjABAAAA-test")
-        return api_client.post(
-            "/api/subscription/add", json={"url": home_url}
-        ).json()["id"]
+        return api_client.post("/api/subscription/add", json={"url": home_url}).json()["id"]
 
     def test_update_fields(self, api_client: TestClient) -> None:
         """更新名称/间隔/启用状态。"""
@@ -164,9 +156,7 @@ class TestUpdateDelete:
 
     def test_update_missing_returns_404(self, api_client: TestClient) -> None:
         """更新不存在的订阅返回 404。"""
-        response = api_client.post(
-            "/api/subscription/9999/update", json={"name": "x"}
-        )
+        response = api_client.post("/api/subscription/9999/update", json={"name": "x"})
         assert response.status_code == 404
 
     def test_delete(self, api_client: TestClient) -> None:
@@ -183,9 +173,7 @@ class TestScanAndItems:
     def _create(self, api_client: TestClient) -> int:
         home_url = "https://www.douyin.com/user/MS4wLjABAAAA-test"
         ctx.url_parser.parse.return_value = _home_parsed(home_url, "MS4wLjABAAAA-test")
-        return api_client.post(
-            "/api/subscription/add", json={"url": home_url}
-        ).json()["id"]
+        return api_client.post("/api/subscription/add", json={"url": home_url}).json()["id"]
 
     def _create_with_item(self, api_client: TestClient) -> tuple[int, int]:
         sub_id = self._create(api_client)
@@ -216,9 +204,7 @@ class TestScanAndItems:
     def test_items_filter(self, api_client: TestClient) -> None:
         """按状态过滤作品列表。"""
         sub_id, _ = self._create_with_item(api_client)
-        response = api_client.get(
-            f"/api/subscription/{sub_id}/items", params={"status": "new"}
-        )
+        response = api_client.get(f"/api/subscription/{sub_id}/items", params={"status": "new"})
         assert response.status_code == 200
         items = response.json()
         assert len(items) == 1
@@ -228,9 +214,7 @@ class TestScanAndItems:
     def test_items_invalid_status(self, api_client: TestClient) -> None:
         """非法状态参数返回 400。"""
         sub_id = self._create(api_client)
-        response = api_client.get(
-            f"/api/subscription/{sub_id}/items", params={"status": "bogus"}
-        )
+        response = api_client.get(f"/api/subscription/{sub_id}/items", params={"status": "bogus"})
         assert response.status_code == 400
 
     def test_accept_marks_accepted(self, api_client: TestClient) -> None:
@@ -253,9 +237,7 @@ class TestScanAndItems:
     def test_accept_already_processed(self, api_client: TestClient) -> None:
         """已处理的作品不可重复接受。"""
         sub_id, item_id = self._create_with_item(api_client)
-        ctx.subscription_repo.update_item_status(
-            item_id, SubscriptionItemStatus.SKIPPED.value
-        )
+        ctx.subscription_repo.update_item_status(item_id, SubscriptionItemStatus.SKIPPED.value)
         response = api_client.post(f"/api/subscription/items/{item_id}/accept")
         assert response.status_code == 400
         assert "已被处理" in response.json()["detail"]

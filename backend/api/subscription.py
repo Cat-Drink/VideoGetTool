@@ -198,8 +198,7 @@ async def update_subscription(sub_id: int, req: SubscriptionUpdateRequest):
         raise HTTPException(status_code=404, detail="订阅不存在")
 
     if req.interval_minutes is not None and (
-        req.interval_minutes < MIN_INTERVAL_MINUTES
-        or req.interval_minutes > MAX_INTERVAL_MINUTES
+        req.interval_minutes < MIN_INTERVAL_MINUTES or req.interval_minutes > MAX_INTERVAL_MINUTES
     ):
         raise HTTPException(
             status_code=400,
@@ -376,9 +375,7 @@ async def scan_and_collect(sub_id: int):
     # 入队后全部标记为已接受；入队抛异常时保持 new 以便重试
     for it in new_items:
         if it.id is not None:
-            ctx.subscription_repo.update_item_status(
-                it.id, SubscriptionItemStatus.ACCEPTED.value
-            )
+            ctx.subscription_repo.update_item_status(it.id, SubscriptionItemStatus.ACCEPTED.value)
     return {
         "message": f"已入队 {len(new_items)} 个新作品",
         "queued": len(new_items),

@@ -104,9 +104,7 @@ class TestScanSubscription:
     @pytest.mark.asyncio
     async def test_detects_new_items(self, memory_db) -> None:
         """首次扫描发现全部新作品并入库。"""
-        scanner, crawler = _build_scanner(
-            memory_db, posts=[_post("a1"), _post("a2"), _post("a3")]
-        )
+        scanner, crawler = _build_scanner(memory_db, posts=[_post("a1"), _post("a2"), _post("a3")])
         sub_id = scanner.subscription_repo.create(_make_subscription())
 
         result = await scanner.scan_subscription(sub_id)
@@ -126,9 +124,7 @@ class TestScanSubscription:
     @pytest.mark.asyncio
     async def test_second_scan_no_duplicates(self, memory_db) -> None:
         """重复扫描不会重复入库同一作品。"""
-        scanner, _ = _build_scanner(
-            memory_db, posts=[_post("a1"), _post("a2")]
-        )
+        scanner, _ = _build_scanner(memory_db, posts=[_post("a1"), _post("a2")])
         sub_id = scanner.subscription_repo.create(_make_subscription())
 
         first = await scanner.scan_subscription(sub_id)
@@ -141,9 +137,7 @@ class TestScanSubscription:
     @pytest.mark.asyncio
     async def test_new_items_only(self, memory_db) -> None:
         """第三次扫描只发现真正新增的作品。"""
-        scanner, crawler = _build_scanner(
-            memory_db, posts=[_post("a1"), _post("a2")]
-        )
+        scanner, crawler = _build_scanner(memory_db, posts=[_post("a1"), _post("a2")])
         sub_id = scanner.subscription_repo.create(_make_subscription())
         await scanner.scan_subscription(sub_id)
 

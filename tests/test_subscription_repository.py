@@ -41,9 +41,7 @@ class TestSubscriptionCrud:
         assert sub.created_at
         assert sub.updated_at
 
-    def test_get_missing_returns_none(
-        self, subscription_repo: SubscriptionRepository
-    ) -> None:
+    def test_get_missing_returns_none(self, subscription_repo: SubscriptionRepository) -> None:
         """查询不存在的订阅返回 None。"""
         assert subscription_repo.get(9999) is None
 
@@ -251,6 +249,4 @@ class TestMigration:
         )
         repo.add_item(_make_item(sub_id))
         repo.delete(sub_id)
-        assert memory_db.execute(
-            "SELECT COUNT(*) FROM subscription_items"
-        ).fetchone()[0] == 0
+        assert memory_db.execute("SELECT COUNT(*) FROM subscription_items").fetchone()[0] == 0
