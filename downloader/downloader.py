@@ -27,7 +27,7 @@ import re
 import shutil
 import sqlite3
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -156,6 +156,7 @@ class Downloader:
         video_parser: VideoParser | None = None,
         cookie_repository: CookieRepository | None = None,
         ffmpeg_path: str | None = None,
+        bili_reparser: Callable[..., Awaitable[tuple[str, str] | None]] | None = None,
     ) -> None:
         """初始化下载器。
 
@@ -180,6 +181,10 @@ class Downloader:
         self._video_parser = video_parser
         self._cookie_repository = cookie_repository
         self._ffmpeg_path = ffmpeg_path
+        # v0.4.2/审计 M10：B 站 DASH 直链过期（403/404）时的重解析器；
+        # 签名 Callable[[TaskItem], Awaitable[tuple[str,str]|None]]，
+        # 返回新的 (video_url, audio_url)；None 表示不可用（不触发重解析）。
+        self._bili_reparser = bili_reparser
         # 按目标文件路径的并发锁：防止同名目标（同一视频/图集被多次下载）
         # 并发写同一个 .part 文件导致合并阶段文件占用冲突（WinError 32）
         self._file_locks: dict[str, asyncio.Lock] = {}
@@ -766,10 +771,77 @@ class Downloader:
                 f"{stderr.decode(errors='replace')[:500]}"
             )
 
+    @staticmethod
+    def _is_link_expired(reason: str | None) -> bool:
+        """判断下载失败原因是否属于直链过期（HTTP 403/404）。
+
+        参数:
+            reason: 失败原因文本（如 "HTTP 403"）。
+
+        返回:
+            命中 403/404 返回 True。
+        """
+        if not reason:
+            return False
+        return "HTTP 403" in reason or "HTTP 404" in reason
+
+    def _should_reparse_dash(self, task_item: TaskItem, _reparsed: bool) -> bool:
+        """是否应触发 B 站 DASH 直链重解析。
+
+        条件：未重解析过、注入过 bili_reparser、任务项带 bvid/cid、
+        B 站平台任务（url 为空表示无 URL 可再试，直接不触发）。
+        """
+        if _reparsed or self._bili_reparser is None:
+            return False
+        if not task_item.bvid or not task_item.cid:
+            return False
+        return bool(task_item.url and task_item.audio_url)
+
+    async def _reparse_and_retry_dash(
+        self,
+        task_item: TaskItem,
+        final_path: Path,
+    ) -> DownloadResult:
+        """调用注入的 bili_reparser 换取新 URL，回填并递归重试一次。
+
+        失败（返回 None/异常）时维持原失败路径：由调用方按普通失败处理。
+
+        返回:
+            重解析后的下载结果（含最终失败）。
+        """
+        try:
+            new_urls = await self._bili_reparser(task_item)
+        except Exception as exc:  # 重解析异常不阻断下载主流程
+            logger.warning(
+                "B 站 DASH 重解析异常 task_item id=%s error=%s", task_item.id, exc
+            )
+            new_urls = None
+        if not new_urls:
+            logger.info(
+                "B 站 DASH 重解析无结果，维持原失败 task_item id=%s", task_item.id
+            )
+            video_result = DownloadResult(
+                success=False, error=f"HTTP 403 且重解析无可用新直链"
+            )
+            self._mark_status(task_item.id, "failed", fail_reason=video_result.error)
+            return video_result
+
+        video_url, audio_url = new_urls
+        task_item.url = video_url
+        task_item.audio_url = audio_url
+        # 回填 DB，供断点续传/订阅重试使用新 URL
+        self._item_repo.update_dash_urls(task_item.id, video_url, audio_url)
+        logger.info(
+            "B 站 DASH 直链已过期，重解析获取新直链后重试 task_item id=%s",
+            task_item.id,
+        )
+        return await self._download_dash(task_item, final_path, _reparsed=True)
+
     async def _download_dash(
         self,
         task_item: TaskItem,
         final_path: Path,
+        _reparsed: bool = False,
     ) -> DownloadResult:
         """下载 B 站 DASH 音视频流并用 ffmpeg 合并。
 
@@ -779,12 +851,13 @@ class Downloader:
             2. ffmpeg -c copy 合并为最终 MP4
             3. 清理临时文件，标记任务项完成
 
+        审计 M10：视频/音频流直链过期（403/404）且注入 bili_reparser 时，
+        自动重解析换取新 URL 重试一次（_reparsed 防无限递归）。
+
         Args:
             task_item: 任务项（url=视频流, audio_url=音频流）
             final_path: 最终合并文件路径
-
-        Returns:
-            下载结果
+            _reparsed: 内部递归标记，避免重解析后再失败再次重解析。
         """
         video_part = Path(str(final_path) + ".video")
         audio_part = Path(str(final_path) + ".audio")
@@ -823,11 +896,18 @@ class Downloader:
                 if isinstance(audio_result, asyncio.CancelledError):
                     raise
                 raise RuntimeError(f"音频流下载失败: {audio_result}")
+
+            # 审计 M10：视频流过期（403/404）→ 尝试重解析换新 URL 再下载一次
+            if not video_result.success and self._should_reparse_dash(task_item, _reparsed):
+                return await self._reparse_and_retry_dash(task_item, final_path)
             if not video_result.success:
                 self._mark_status(
                     task_item.id, "failed", fail_reason=video_result.error or "视频流下载失败"
                 )
                 return video_result
+            # 审计 M10：音频流过期同理
+            if not audio_result.success and self._should_reparse_dash(task_item, _reparsed):
+                return await self._reparse_and_retry_dash(task_item, final_path)
             if not audio_result.success:
                 self._mark_status(
                     task_item.id, "failed", fail_reason=audio_result.error or "音频流下载失败"

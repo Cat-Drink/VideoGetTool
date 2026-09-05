@@ -215,6 +215,35 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         except Exception:
             log.exception("广播进度消息失败")
 
+    async def _reparse_bili_urls(task_item) -> tuple[str, str] | None:
+        """B 站 DASH 直链过期重解析：请求新 playurl，返回 (video_url, audio_url)。
+
+        审计 M10：任务项 url/audio_url 为服务端签发、隔天过期（403/404）；
+        重解析换取新直链后由 Downloader 回填并重试。失败返回 None。
+        """
+        if ctx.bili_video_parser is None or not task_item.bvid or not task_item.cid:
+            return None
+        try:
+            from app.crypto import decrypt_secret
+
+            cookie = None
+            if ctx.config_repo is not None:
+                cookie = decrypt_secret(ctx.config_repo.get("bilibili_cookie") or "") or None
+            result = await ctx.bili_video_parser.parse_playurl(
+                bvid=task_item.bvid, cid=int(task_item.cid), cookie=cookie
+            )
+        except Exception:
+            log.exception("B 站 DASH 重解析失败 task_item id=%s", task_item.id)
+            return None
+        if result.dash and result.video_streams and result.audio_streams:
+            video = next((s for s in result.video_streams if s.url), None)
+            audio = next((s for s in result.audio_streams if s.url), None)
+            if video and audio:
+                return (video.url, audio.url)
+        if result.url:
+            return (result.url, "")
+        return None
+
     ctx.scheduler = Scheduler(
         conn=ctx.conn,
         http_client=None,
@@ -225,6 +254,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         on_progress=_on_progress,
         video_parser=ctx.video_parser,
         cookie_repository=ctx.cookie_repo,
+        bili_reparser=_reparse_bili_urls,
     )
 
     # 6. 启动调度器

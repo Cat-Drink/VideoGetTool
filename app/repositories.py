@@ -484,6 +484,20 @@ class TaskItemRepository:
                 (selected_image_indices, now_iso(), item_id),
             )
 
+    def update_dash_urls(self, item_id: int, url: str, audio_url: str) -> None:
+        """更新任务项的视频/音频流 URL（审计 M10：DASH 直链过期重解析回填）。
+
+        Args:
+            item_id: 任务项 id
+            url: 新的视频流 URL
+            audio_url: 新的音频流 URL
+        """
+        with self._conn:
+            self._conn.execute(
+                "UPDATE task_items SET url = ?, audio_url = ?, updated_at = ? WHERE id = ?",
+                (url, audio_url, now_iso(), item_id),
+            )
+
     def update_dash_merged(self, item_id: int, merged: bool = True) -> None:
         """标记 DASH 音视频流是否已合并完成（v0.4.0）。
 
