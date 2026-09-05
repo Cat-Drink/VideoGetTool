@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urljoin, urlparse
 
 from crawlers.exceptions import InvalidURLFormatError
 
@@ -134,7 +134,11 @@ class URLParser:
 
     @staticmethod
     def _is_douyin_url(url: str) -> bool:
-        """判断 URL 是否属于抖音合法域名。
+        """判断 URL 是否属于抖音合法域名（审计 M9）。
+
+        用 ``urlparse(...).hostname`` 提取 host，天然免疫 ``userinfo@`` 绕过
+        （如 ``https://v.douyin.com:443@evil.com/x`` 的真实 host 是 evil.com）；
+        尾部点号（``v.douyin.com.``）与大小写均规范化后再比较。
 
         参数:
             url: 待判断的 URL 字符串。
@@ -142,12 +146,13 @@ class URLParser:
         返回:
             属于抖音域名返回 True，否则 False。
         """
-        url_lower = url.lower()
-        # 提取 host 部分：https://host/path → host
-        host_match = re.match(r"https?://([^/]+)/?", url_lower)
-        if not host_match:
+        try:
+            parsed = urlparse(url)
+            host = (parsed.hostname or "").lower().rstrip(".")
+        except ValueError:
             return False
-        host = host_match.group(1).split(":")[0]
+        if parsed.scheme.lower() not in ("http", "https"):
+            return False
         return host in _DOUYIN_DOMAINS
 
     def identify_type(self, url: str) -> LinkType:
@@ -267,35 +272,39 @@ class URLParser:
         return None
 
     async def follow_redirect(self, short_url: str) -> str:
-        """跟随 v.douyin.com 短链重定向，返回最终落地 URL。
+        """跟随 v.douyin.com 短链重定向，校验落地域名（审计 M9）。
+
+        保持“单跳取 Location”的既有契约（落地 URL 可直接供 identify_type
+        解析，多跳跟随会引入落地页路径漂移与多余请求）；安全修复点是：
+        **Location 必须属于抖音域名白名单**，否则立即拒绝（urlparse 提取
+        host，免疫 ``userinfo@`` 伪装与相对路径逃逸）。
 
         不带 Cookie 与签名（短链重定向不需要），调用 HttpClient.get
-        （use_cookie_pool=False）获取响应，从 ``httpx.Response.url`` 取最终 URL。
+        （use_cookie_pool=False）获取响应。
 
         参数:
             short_url: 短链 URL（如 ``https://v.douyin.com/AbCd123/``）。
 
         返回:
-            最终落地 URL 字符串。
+            校验通过的重定向目标 URL；无 Location 头时返回响应 URL。
 
         异常:
+            InvalidURLFormatError: 重定向目标非抖音域名。
             NetworkError: 重定向失败/超时。
         """
-        # HttpClient.get 已设置 follow_redirects=False，但短链重定向需要跟随
-        # 此处通过 use_cookie_pool=False 调用，让 HttpClient 发起请求
-        # 由于 follow_redirects=False，response.url 即为最终 URL（短链本身不会重定向）
-        # 实际上 v.douyin.com 短链返回 302 + Location 头，我们需要手动解析
         response = await self._http_client.get(
             short_url,
             use_cookie_pool=False,
         )
-        # httpx.Response.url 在 follow_redirects=False 时为请求 URL 本身
-        # 检查 Location 头获取重定向目标
         location = response.headers.get("location")
-        if location:
-            return location
-        # 无 Location 头，返回响应 URL（已是最终 URL）
-        return str(response.url)
+        if not location:
+            return str(response.url)
+        resolved = urljoin(short_url, location)
+        if not self._is_douyin_url(resolved):
+            raise InvalidURLFormatError(
+                f"短链重定向到非抖音域名，已拒绝: {resolved[:120]}"
+            )
+        return resolved
 
     async def parse(self, text: str) -> ParsedURL:
         """解析用户粘贴的链接文本。

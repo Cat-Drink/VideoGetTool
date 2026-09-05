@@ -15,7 +15,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urljoin, urlparse
 
 from crawlers.exceptions import InvalidURLFormatError
 
@@ -283,27 +283,39 @@ class BiliURLParser:
         )
 
     async def _follow_redirect(self, url: str) -> str:
-        """跟随短链重定向获取最终 URL。
+        """手动跟随短链重定向，逐跳校验 host 白名单（审计 S1）。
 
-        使用 GET 跟随重定向；为防止 SSRF，落地 URL 的 host 必须属于
-        _BILI_DOMAINS 白名单，否则回退到原 URL（由上层解析器反馈失败）。
+        原实现 ``follow_redirects=True`` 会先由 httpx 跟随（可能已访问中间
+        跳转主机）再校验最终 host，存在“先请求后校验”窗口。改为逐跳手动
+        跟随：每跳解析 Location 后**先**校验 host 属于 ``_BILI_DOMAINS``，
+        非白名单拒绝跟随（未对非法主机发出请求），最多跟随 5 跳。
 
         参数:
             url: 短链 URL。
 
         返回:
-            最终 URL（host 校验通过）；校验失败或网络异常时返回原 URL。
+            最终 URL（host 校验通过）；校验失败或网络异常时返回原 URL
+            （保持原有“回退到原 URL、由上层解析器反馈失败”的语义）。
         """
         if self._http_client is None:
             return url
-        try:
-            resp = await self._http_client.get(url, follow_redirects=True)
-            final_url = str(resp.url)
-            final_host = (urlparse(final_url).hostname or "").lower()
-            if final_host not in _BILI_DOMAINS:
-                # 非 B 站域名（可能被重定向到内网/元数据地址），拒绝跟随
+        current = url
+        for _ in range(5):
+            try:
+                resp = await self._http_client.get(current, follow_redirects=False)
+            except Exception:
+                # 网络异常时返回原 URL，由上层解析器反馈失败
                 return url
-            return final_url
-        except Exception:
-            # 网络异常时返回原 URL，由上层解析器反馈失败
-            return url
+            if resp.status_code in (301, 302, 303, 307, 308):
+                location = resp.headers.get("location")
+                if not location:
+                    return url
+                resolved = urljoin(current, location)
+                final_host = (urlparse(resolved).hostname or "").lower().rstrip(".")
+                if final_host not in _BILI_DOMAINS:
+                    # 非 B 站域名（可能被重定向到内网/元数据地址），拒绝跟随
+                    return url
+                current = resolved
+                continue
+            return str(resp.url)
+        return url

@@ -228,11 +228,15 @@ class TestURLParserSSRF:
 
     @pytest.mark.asyncio
     async def test_redirect_to_bili_domain_accepted(self) -> None:
-        """重定向到 B 站域名时接受最终 URL。"""
+        """重定向到 B 站域名时接受最终 URL（302 → 200 两段式）。"""
         http_client = MagicMock()
-        resp = MagicMock()
-        resp.url = "https://www.bilibili.com/video/BV1xx411c7mD"
-        http_client.get = AsyncMock(return_value=resp)
+        resp_302 = MagicMock()
+        resp_302.status_code = 302
+        resp_302.headers = {"location": "https://www.bilibili.com/video/BV1xx411c7mD"}
+        resp_200 = MagicMock()
+        resp_200.status_code = 200
+        resp_200.url = "https://www.bilibili.com/video/BV1xx411c7mD"
+        http_client.get = AsyncMock(side_effect=[resp_302, resp_200])
         parser = BiliURLParser(http_client=http_client)
 
         result = await parser._follow_redirect("https://b23.tv/abc")
@@ -241,16 +245,19 @@ class TestURLParserSSRF:
 
     @pytest.mark.asyncio
     async def test_redirect_to_non_bili_rejected(self) -> None:
-        """重定向到非 B 站域名（内网/元数据地址）时回退原 URL。"""
+        """重定向到非 B 站域名（内网/元数据地址）时回退原 URL，且不发后续请求。"""
         http_client = MagicMock()
         resp = MagicMock()
-        resp.url = "http://169.254.169.254/latest/meta-data/"
+        resp.status_code = 302
+        resp.headers = {"location": "http://169.254.169.254/latest/meta-data/"}
         http_client.get = AsyncMock(return_value=resp)
         parser = BiliURLParser(http_client=http_client)
 
         result = await parser._follow_redirect("https://b23.tv/evil")
 
         assert result == "https://b23.tv/evil"
+        # 只发起一跳请求，未对非法主机发出请求
+        assert http_client.get.await_count == 1
 
     @pytest.mark.asyncio
     async def test_redirect_network_error_fallback(self) -> None:
