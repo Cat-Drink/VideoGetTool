@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import sqlite3
 
+from app.crypto import decrypt_secret, encrypt_secret, is_encrypted
 from app.models import (
     Cookie,
     Metadata,
@@ -536,12 +537,36 @@ class CookieRepository:
     def __init__(self, conn: sqlite3.Connection):
         self._conn = conn
 
+    def _load_cookie(self, row: sqlite3.Row) -> Cookie:
+        """行 → Cookie，content 解密（审计 H3）。
+
+        读到旧版本明文时惰性迁移：原地 UPDATE 为密文后返回明文，
+        避免下次读取重复解密；解密失败则按原值返回（不阻断读取）。
+        """
+        cookie = _row_to_cookie(row)
+        raw = row["content"]
+        if not raw:
+            return cookie
+        if not is_encrypted(raw):
+            enc = encrypt_secret(raw)
+            if enc and cookie.id is not None:
+                with self._conn:
+                    self._conn.execute(
+                        "UPDATE cookies SET content = ? WHERE id = ?",
+                        (enc, cookie.id),
+                    )
+            return cookie
+        cookie.content = decrypt_secret(raw)
+        return cookie
+
     def add(self, cookie: Cookie) -> int:
         """插入 Cookie，返回新记录 id。
 
-        created_at 若空则用 now_iso() 填充。
+        content 落库前经 DPAPI 加密（审计 H3）；created_at 若空则用
+        now_iso() 填充。
         """
         created_at = cookie.created_at or now_iso()
+        encrypted = encrypt_secret(cookie.content) if cookie.content else ""
         with self._conn:
             cursor = self._conn.execute(
                 """
@@ -551,7 +576,7 @@ class CookieRepository:
                 VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    cookie.content,
+                    encrypted,
                     cookie.label,
                     cookie.status,
                     cookie.last_used,
@@ -583,12 +608,12 @@ class CookieRepository:
             LIMIT 1
             """,
         ).fetchone()
-        return _row_to_cookie(row) if row else None
+        return self._load_cookie(row) if row else None
 
     def get_by_id(self, cookie_id: int) -> Cookie | None:
         """按 id 查询 Cookie，无结果返回 None。"""
         row = self._conn.execute("SELECT * FROM cookies WHERE id = ?", (cookie_id,)).fetchone()
-        return _row_to_cookie(row) if row else None
+        return self._load_cookie(row) if row else None
 
     def update_status(self, cookie_id: int, status: str) -> None:
         """更新 Cookie 状态。"""
@@ -622,12 +647,12 @@ class CookieRepository:
         rows = self._conn.execute(
             "SELECT * FROM cookies WHERE status != 'invalid' ORDER BY id"
         ).fetchall()
-        return [_row_to_cookie(row) for row in rows]
+        return [self._load_cookie(row) for row in rows]
 
     def get_all(self) -> list[Cookie]:
         """查询所有 Cookie，按 created_at 排序。"""
         rows = self._conn.execute("SELECT * FROM cookies ORDER BY created_at").fetchall()
-        return [_row_to_cookie(row) for row in rows]
+        return [self._load_cookie(row) for row in rows]
 
 
 class ConfigRepository:
