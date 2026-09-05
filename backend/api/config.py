@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+import os
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
@@ -77,7 +79,13 @@ async def update_config(req: UpdateConfigRequest):
         raise HTTPException(status_code=503, detail="Service not ready")
 
     if req.download_dir is not None:
-        ctx.config_repo.set("download_dir", req.download_dir)
+        raw = req.download_dir.strip()
+        if not raw:
+            raise HTTPException(status_code=400, detail="下载目录不能为空")
+        # 审计 N2：规范化存储（展开用户目录 + 绝对路径），
+        # 与入队接口的 _validate_download_dir 严格一致校验配套
+        abs_dir = os.path.abspath(os.path.expanduser(raw))
+        ctx.config_repo.set("download_dir", abs_dir)
     if req.concurrency is not None:
         ctx.config_repo.set("concurrency", str(req.concurrency))
         # 动态调整调度器并发数

@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -17,6 +18,72 @@ from backend.state import ctx
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+# === 内部辅助 ===
+
+
+def _resolve_dir(path: str) -> str:
+    """规范化目录：展开用户目录、取绝对路径、统一大小写（Windows）。"""
+    return os.path.normcase(os.path.abspath(os.path.expanduser(path.strip())))
+
+
+def _validate_download_dir(raw: str | None, configured: str) -> str:
+    """下载目录准入：仅接受『与配置目录一致』的路径（审计 P0-3/N2）。
+
+    产品语义：下载目录只能经“设置页 → config API”变更；入队接口收到的
+    download_dir 必须与配置一致，否则拒绝。这同时封堵 config API 之外
+    的任意路径写（DNS rebinding 的第二个写入点）。
+
+    参数:
+        raw: 请求传入的 download_dir（可空）
+        configured: 配置中的 download_dir
+
+    返回:
+        校验通过的下载目录（非空字符串）
+
+    异常:
+        HTTPException(400): 目录为空或与配置不一致
+    """
+    candidate = (raw or configured or "").strip()
+    if not candidate:
+        # 配置缺失时回退内置默认目录（生产环境 init_db 总会写入默认值）
+        from app.config import DEFAULT_CONFIGS
+
+        candidate = DEFAULT_CONFIGS.get("download_dir", "").strip()
+    if not candidate:
+        raise HTTPException(status_code=400, detail="下载目录为空")
+    if configured.strip():
+        if _resolve_dir(candidate) != _resolve_dir(configured):
+            raise HTTPException(
+                status_code=400,
+                detail="download_dir 与配置目录不一致，请在设置中修改下载目录",
+            )
+    return candidate
+
+
+_ALLOWED_DOWNLOAD_SCHEMES: frozenset[str] = frozenset({"http", "https"})
+
+
+def _validate_download_url(url: str) -> str:
+    """下载直链校验：仅 http/https、必须有 host（审计 P0-3）。
+
+    参数:
+        url: 待校验的直链 URL（可空字符串）
+
+    返回:
+        规范化后的 URL（空串原样返回）
+
+    异常:
+        HTTPException(400): 协议非 http/https 或缺少 host
+    """
+    url = (url or "").strip()
+    if not url:
+        return ""
+    parts = urlsplit(url)
+    if parts.scheme not in _ALLOWED_DOWNLOAD_SCHEMES or not parts.hostname:
+        raise HTTPException(status_code=400, detail=f"非法下载地址: {url[:80]}")
+    return url
 
 
 # === 请求/响应模型 ===
@@ -101,7 +168,10 @@ async def enqueue_download_items(
     ):
         raise HTTPException(status_code=503, detail="Service not ready")
 
-    download_dir = download_dir or ctx.config_repo.get("download_dir") or ""
+    # 审计 P0-3：download_dir 必须与配置目录一致（封堵任意路径写）
+    download_dir = _validate_download_dir(
+        download_dir, ctx.config_repo.get("download_dir") or ""
+    )
 
     # 创建任务
     task = Task(
@@ -161,6 +231,12 @@ async def enqueue_download_items(
             else:
                 download_url = item_data.get("url", "")
 
+            # 审计 P0-3：所有落库直链一律校验（仅 http/https）
+            if download_url:
+                download_url = "\n".join(
+                    _validate_download_url(u) for u in download_url.split("\n") if u
+                )
+
             task_item = TaskItem(
                 id=None,
                 task_id=task_id,
@@ -185,7 +261,7 @@ async def enqueue_download_items(
                 bvid=item_data.get("bvid"),
                 cid=item_data.get("cid"),
                 page=item_data.get("page") or 0,
-                audio_url=item_data.get("audio_url") or "",
+                audio_url=_validate_download_url(item_data.get("audio_url")),
                 dash_merged="",
             )
             item_id = ctx.task_item_repo.create(task_item)
@@ -259,6 +335,33 @@ async def list_task_items(task_id: int):
         )
         for item in items
     ]
+
+
+def _remove_item_outputs(item: TaskItem, task_repo) -> None:
+    """删除任务项对应的本地产物（审计 S3）。
+
+    仅当任务项已生成本地文件（local_path 非空）时尝试清理；目录包含性
+    校验基座取任务自身的 download_dir（同一任务内安全），越界/失败仅记
+    日志不抛错，避免单个产物删除失败阻断整个删除请求。
+
+    参数:
+        item: 待删除的任务项。
+        task_repo: Task 仓库（用于取任务 download_dir）。
+    """
+    if not item.local_path:
+        return
+    try:
+        from downloader.cleanup import safe_remove_output
+
+        base_dir = ""
+        task = task_repo.get(item.task_id) if task_repo else None
+        base_dir = (task.download_dir if task else "") or ""
+        if not base_dir:
+            logger.warning("任务项 %s 无 download_dir，跳过产物清理", item.id)
+            return
+        safe_remove_output(item.local_path, base_dir)
+    except Exception:  # 清理失败绝不阻断数据库删除
+        logger.exception("任务项 %s 产物清理异常（忽略）", item.id)
 
 
 @router.post("/start")
@@ -354,6 +457,9 @@ async def delete_task_item(item_id: int):
     """删除单个下载任务项。
 
     若该项所属 Task 下已无剩余 TaskItem，则一并清理该 Task。
+    审计 S3：删除数据库行的同时清理该项的本地产物（成品文件/.part），
+    目录包含性校验见 ``downloader.cleanup.safe_remove_output``；
+    产物路径越界或删除失败仅记录日志，不影响数据库删除。
     """
     if ctx.task_item_repo is None or ctx.task_repo is None:
         raise HTTPException(status_code=503, detail="Service not ready")
@@ -363,6 +469,9 @@ async def delete_task_item(item_id: int):
         raise HTTPException(status_code=404, detail=f"任务项 {item_id} 不存在")
 
     task_id = item.task_id
+
+    # 审计 S3：先清理本地产物（含 .part），再删数据库行
+    _remove_item_outputs(item, ctx.task_repo)
 
     # 删除该 TaskItem
     ctx.task_item_repo.delete(item_id)
@@ -377,9 +486,22 @@ async def delete_task_item(item_id: int):
 
 @router.delete("/tasks/{task_id}")
 async def delete_task(task_id: int):
-    """删除任务及其所有项。"""
-    if ctx.task_repo is None:
+    """删除任务及其所有项。
+
+    审计 S3：删除数据库行的同时清理任务全部项的本地产物（成品/.part），
+    目录包含性校验见 ``downloader.cleanup.safe_remove_output``。
+    """
+    if ctx.task_repo is None or ctx.task_item_repo is None:
         raise HTTPException(status_code=503, detail="Service not ready")
+
+    task = ctx.task_repo.get(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail=f"任务 {task_id} 不存在")
+
+    # 审计 S3：先清理全部子项的本地产物，再删数据库行
+    for item in ctx.task_item_repo.get_by_task(task_id):
+        _remove_item_outputs(item, ctx.task_repo)
+    # TaskRepository.delete 依赖外键 ON DELETE CASCADE 级联删除 task_items/metadata
     ctx.task_repo.delete(task_id)
     return {"message": f"任务 {task_id} 已删除"}
 

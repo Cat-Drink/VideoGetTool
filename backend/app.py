@@ -231,6 +231,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await ctx.scheduler.start()
     await ctx.scheduler.restore_pending_tasks()
 
+    # 6.5. 孤儿 .part 清理（审计 S3）：进程崩溃/任务删除残留的临时文件
+    with contextlib.suppress(Exception):
+        from downloader.cleanup import sweep_orphan_part_files
+
+        cfg_dir = ctx.config_repo.get("download_dir") if ctx.config_repo else None
+        if cfg_dir:
+            removed = sweep_orphan_part_files(cfg_dir)
+            if removed:
+                log.info("启动清理孤儿 .part 文件 %d 个", removed)
     # 7. 启动共享 WebSocket 进度轮询任务
     await ws_router._start_shared_push()
 
