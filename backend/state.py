@@ -43,7 +43,7 @@ class AppContext:
         self.cookie_repo: CookieRepository | None = None
         self.config_repo: ConfigRepository | None = None
         self.metadata_repo: MetadataRepository | None = None
-        # v0.5.0：订阅模式
+        # v0.4.1：订阅模式
         self.subscription_repo: SubscriptionRepository | None = None
         self.subscription_scanner: SubscriptionScanner | None = None
         self.scheduler: Scheduler | None = None

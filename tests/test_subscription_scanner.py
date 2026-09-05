@@ -1,4 +1,4 @@
-"""订阅扫描器服务测试（v0.5.0）。"""
+"""订阅扫描器服务测试（v0.4.1）。"""
 
 from __future__ import annotations
 

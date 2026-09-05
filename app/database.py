@@ -20,7 +20,7 @@ from app import config
 from app.models import now_iso
 
 # === Schema 版本 ===
-# v5（v0.5.0）：新增 subscriptions / subscription_items 两张订阅模式表
+# v5（v0.4.1）：新增 subscriptions / subscription_items 两张订阅模式表
 SCHEMA_VERSION: int = 5
 
 # === 建表 SQL（与设计文档 4.1 节完全一致）===
@@ -115,7 +115,7 @@ CREATE TABLE IF NOT EXISTS schema_version (
 )
 """
 
-# v0.5.0：订阅模式表
+# v0.4.1：订阅模式表
 CREATE_SUBSCRIPTIONS_SQL = """
 CREATE TABLE IF NOT EXISTS subscriptions (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -162,7 +162,7 @@ CREATE_INDEXES_SQL: list[str] = [
     "CREATE INDEX IF NOT EXISTS idx_task_items_aweme_id ON task_items(aweme_id)",
     "CREATE INDEX IF NOT EXISTS idx_cookies_status ON cookies(status)",
     "CREATE INDEX IF NOT EXISTS idx_metadata_task_item_id ON metadata(task_item_id)",
-    # v0.5.0：订阅模式索引
+    # v0.4.1：订阅模式索引
     "CREATE INDEX IF NOT EXISTS idx_subscriptions_enabled ON subscriptions(enabled)",
     (
         "CREATE INDEX IF NOT EXISTS idx_subscription_items_sub_id "
@@ -279,7 +279,7 @@ MIGRATIONS[4] = _migrate_v3_to_v4
 def _migrate_v4_to_v5(conn: sqlite3.Connection) -> None:
     """v4 → v5：新增订阅模式两张表。
 
-    v0.5.0 抖音用户主页订阅模式：
+    v0.4.1 抖音用户主页订阅模式：
         - subscriptions: 订阅记录（URL、sec_user_id、扫描间隔、启用状态等）
         - subscription_items: 订阅到的作品（新作品 status='new'，待用户处理）
 

@@ -173,7 +173,7 @@ class Config:
 
 @dataclass
 class Subscription:
-    """订阅表对应数据类（v0.5.0 订阅模式）。"""
+    """订阅表对应数据类（v0.4.1 订阅模式）。"""
 
     id: int | None
     url: str  # 用户主页链接
@@ -191,7 +191,7 @@ class Subscription:
 
 @dataclass
 class SubscriptionItem:
-    """订阅作品表对应数据类（v0.5.0 订阅模式）。"""
+    """订阅作品表对应数据类（v0.4.1 订阅模式）。"""
 
     id: int | None
     subscription_id: int

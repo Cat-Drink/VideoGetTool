@@ -342,7 +342,7 @@ export async function biliClearCookie(): Promise<{ message: string }> {
   return request("/bilibili/cookie", { method: "DELETE" });
 }
 
-// ============ 订阅模式 API（v0.5.0）============
+// ============ 订阅模式 API（v0.4.1）============
 
 export interface SubscriptionResponse {
   id: number;

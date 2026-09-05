@@ -75,7 +75,7 @@ def metadata_repo(memory_db: sqlite3.Connection) -> MetadataRepository:
 
 @pytest.fixture
 def subscription_repo(memory_db: sqlite3.Connection) -> SubscriptionRepository:
-    """返回 SubscriptionRepository 实例（v0.5.0 订阅模式）。"""
+    """返回 SubscriptionRepository 实例（v0.4.1 订阅模式）。"""
     return SubscriptionRepository(memory_db)
 
 

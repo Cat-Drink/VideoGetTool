@@ -1,4 +1,4 @@
-"""订阅模式 Repository 测试（v0.5.0）。"""
+"""订阅模式 Repository 测试（v0.4.1）。"""
 
 from __future__ import annotations
 

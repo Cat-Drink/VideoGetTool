@@ -68,7 +68,7 @@ export function useNotificationService() {
 
   const onMessage = useCallback(
     async (msg: WsMessage) => {
-      // v0.5.0 订阅模式：后台扫描发现新作品
+      // v0.4.1 订阅模式：后台扫描发现新作品
       if (msg.type === "subscription_update") {
         const subId = msg.subscription_id ?? 0;
         const newCount = msg.new_count ?? 0;

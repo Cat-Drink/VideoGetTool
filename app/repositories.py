@@ -723,7 +723,7 @@ class MetadataRepository:
 
 
 class SubscriptionRepository:
-    """订阅表 + 订阅作品表 Repository（v0.5.0 订阅模式）。"""
+    """订阅表 + 订阅作品表 Repository（v0.4.1 订阅模式）。"""
 
     def __init__(self, conn: sqlite3.Connection):
         self._conn = conn

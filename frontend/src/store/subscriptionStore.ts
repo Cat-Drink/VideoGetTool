@@ -1,4 +1,4 @@
-/** 订阅模式状态管理 - Zustand Store（v0.5.0） */
+/** 订阅模式状态管理 - Zustand Store（v0.4.1） */
 
 import { create } from "zustand";
 import * as api from "../lib/api";

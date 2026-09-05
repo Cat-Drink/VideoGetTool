@@ -63,7 +63,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     ctx.cookie_repo = CookieRepository(ctx.conn)
     ctx.config_repo = ConfigRepository(ctx.conn)
     ctx.metadata_repo = MetadataRepository(ctx.conn)
-    # v0.5.0：订阅模式
+    # v0.4.1：订阅模式
     ctx.subscription_repo = SubscriptionRepository(ctx.conn)
 
     # 4. 爬虫层组件
@@ -81,7 +81,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     ctx.user_home_crawler = UserHomeCrawler(ctx.http_client, ctx.signer)
     ctx.cookie_tester = CookieTester(ctx.http_client, ctx.signer)
 
-    # 4.2. 订阅模式扫描器（v0.5.0）
+    # 4.2. 订阅模式扫描器（v0.4.1）
     from backend.services.subscription_scanner import SubscriptionScanner
 
     ctx.subscription_scanner = SubscriptionScanner(
@@ -233,7 +233,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # 7. 启动共享 WebSocket 进度轮询任务
     await ws_router._start_shared_push()
 
-    # 7.5. 启动订阅扫描器（v0.5.0）
+    # 7.5. 启动订阅扫描器（v0.4.1）
     if ctx.subscription_scanner is not None:
         await ctx.subscription_scanner.start()
     log.info("调度器已启动，断点续传已恢复")
@@ -243,7 +243,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # 关闭阶段
     log.info("=== 关闭清理 ===")
     await ws_router._stop_shared_push()
-    # 停止订阅扫描器（v0.5.0）
+    # 停止订阅扫描器（v0.4.1）
     if ctx.subscription_scanner is not None:
         await ctx.subscription_scanner.stop()
     await ctx.scheduler.stop()
@@ -261,7 +261,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 # ===== FastAPI 应用 =====
 app = FastAPI(
     title="VideoGetTool Python Sidecar",
-    version="0.4.0",
+    version="0.4.1",
     lifespan=lifespan,
 )
 
@@ -295,7 +295,7 @@ app.include_router(covers_router.router, prefix="/api", tags=["covers"])
 from backend.api import bilibili as bilibili_router
 
 app.include_router(bilibili_router.router, prefix="/api/bilibili", tags=["bilibili"])
-# v0.5.0：订阅模式路由
+# v0.4.1：订阅模式路由
 from backend.api import subscription as subscription_router
 
 app.include_router(subscription_router.router, prefix="/api/subscription", tags=["subscription"])

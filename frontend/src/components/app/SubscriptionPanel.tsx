@@ -77,7 +77,7 @@ export default function SubscriptionPanel() {
     loadSubscriptions();
   }, [loadSubscriptions]);
 
-  // 监听后台扫描发现新作品的 WebSocket 事件，自动刷新（v0.5.0）
+  // 监听后台扫描发现新作品的 WebSocket 事件，自动刷新（v0.4.1）
   useEffect(() => {
     const handler = () => {
       loadSubscriptions();
