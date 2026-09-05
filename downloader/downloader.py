@@ -812,17 +812,11 @@ class Downloader:
         try:
             new_urls = await self._bili_reparser(task_item)
         except Exception as exc:  # 重解析异常不阻断下载主流程
-            logger.warning(
-                "B 站 DASH 重解析异常 task_item id=%s error=%s", task_item.id, exc
-            )
+            logger.warning("B 站 DASH 重解析异常 task_item id=%s error=%s", task_item.id, exc)
             new_urls = None
         if not new_urls:
-            logger.info(
-                "B 站 DASH 重解析无结果，维持原失败 task_item id=%s", task_item.id
-            )
-            video_result = DownloadResult(
-                success=False, error=f"HTTP 403 且重解析无可用新直链"
-            )
+            logger.info("B 站 DASH 重解析无结果，维持原失败 task_item id=%s", task_item.id)
+            video_result = DownloadResult(success=False, error="HTTP 403 且重解析无可用新直链")
             self._mark_status(task_item.id, "failed", fail_reason=video_result.error)
             return video_result
 
@@ -1176,9 +1170,7 @@ class Downloader:
                     if first_chunk is None and downloaded_bytes == 0:
                         first_chunk = chunk
                         if self._is_playlist_content(first_chunk):
-                            raise PlaylistContentError(
-                                "下载内容为 m3u8/HLS 播放列表而非媒体文件"
-                            )
+                            raise PlaylistContentError("下载内容为 m3u8/HLS 播放列表而非媒体文件")
                     f.write(chunk)
                     downloaded_bytes += len(chunk)
                     # 更新进度（节流器内部去重）

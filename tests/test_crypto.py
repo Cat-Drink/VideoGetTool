@@ -22,8 +22,7 @@ IS_WINDOWS = os.name == "nt"
 def _memory_db() -> sqlite3.Connection:
     conn = sqlite3.connect(":memory:")
     conn.row_factory = sqlite3.Row
-    conn.executescript(
-        """
+    conn.executescript("""
         CREATE TABLE cookies (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             content TEXT NOT NULL,
@@ -38,8 +37,7 @@ def _memory_db() -> sqlite3.Connection:
             key TEXT PRIMARY KEY,
             value TEXT
         );
-        """
-    )
+        """)
     return conn
 
 

@@ -799,9 +799,7 @@ class SubscriptionRepository:
 
     def get(self, sub_id: int) -> Subscription | None:
         """按 id 查询订阅，无结果返回 None。"""
-        row = self._conn.execute(
-            "SELECT * FROM subscriptions WHERE id = ?", (sub_id,)
-        ).fetchone()
+        row = self._conn.execute("SELECT * FROM subscriptions WHERE id = ?", (sub_id,)).fetchone()
         return _row_to_subscription(row) if row else None
 
     def get_by_sec_user_id(self, sec_user_id: str) -> Subscription | None:
@@ -814,9 +812,7 @@ class SubscriptionRepository:
 
     def get_all(self) -> list[Subscription]:
         """查询所有订阅，按创建时间排序。"""
-        rows = self._conn.execute(
-            "SELECT * FROM subscriptions ORDER BY created_at"
-        ).fetchall()
+        rows = self._conn.execute("SELECT * FROM subscriptions ORDER BY created_at").fetchall()
         return [_row_to_subscription(row) for row in rows]
 
     def get_enabled(self) -> list[Subscription]:
@@ -873,9 +869,7 @@ class SubscriptionRepository:
         params.append(now_iso())
         params.append(sub_id)
         with self._conn:
-            self._conn.execute(
-                f"UPDATE subscriptions SET {', '.join(sets)} WHERE id = ?", params
-            )
+            self._conn.execute(f"UPDATE subscriptions SET {', '.join(sets)} WHERE id = ?", params)
 
     def delete(self, sub_id: int) -> None:
         """删除订阅（外键 ON DELETE CASCADE 级联删除 subscription_items）。"""
@@ -930,9 +924,7 @@ class SubscriptionRepository:
         ).fetchone()
         return _row_to_subscription_item(row) if row else None
 
-    def get_item_by_aweme_id(
-        self, sub_id: int, aweme_id: str
-    ) -> SubscriptionItem | None:
+    def get_item_by_aweme_id(self, sub_id: int, aweme_id: str) -> SubscriptionItem | None:
         """按订阅 + aweme_id 查询作品（去重判断）。"""
         row = self._conn.execute(
             "SELECT * FROM subscription_items "
@@ -990,9 +982,7 @@ class SubscriptionRepository:
                 (status, now_iso(), item_id),
             )
 
-    def update_items_status(
-        self, sub_id: int, from_status: str, to_status: str
-    ) -> int:
+    def update_items_status(self, sub_id: int, from_status: str, to_status: str) -> int:
         """批量更新某订阅下指定旧状态的作品为新状态，返回受影响行数。"""
         with self._conn:
             cursor = self._conn.execute(

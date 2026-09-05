@@ -23,7 +23,6 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app import config, database
-from backend.security import HostGuardMiddleware
 from app.logger import get_logger, setup_logger
 from backend.api import config as config_router
 from backend.api import cookie as cookie_router
@@ -32,6 +31,7 @@ from backend.api import crawler as crawler_router
 from backend.api import download as download_router
 from backend.api import health as health_router
 from backend.api import ws as ws_router
+from backend.security import HostGuardMiddleware
 from backend.state import ctx
 
 

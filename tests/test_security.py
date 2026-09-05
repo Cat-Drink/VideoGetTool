@@ -71,18 +71,26 @@ class TestWebSocketSecurity:
 
     def test_ws_rejects_evil_host(self):
         client = TestClient(self._ws_app())
-        with pytest.raises(Exception):  # starlette WebSocketDisconnect
-            with client.websocket_connect("/api/ws", headers={"host": "evil.com:18989"}):
-                pass
+        from starlette.websockets import WebSocketDisconnect
+
+        with (
+            pytest.raises(WebSocketDisconnect),
+            client.websocket_connect("/api/ws", headers={"host": "evil.com:18989"}),
+        ):
+            pass
 
     def test_ws_rejects_evil_origin(self):
         client = TestClient(self._ws_app())
-        with pytest.raises(Exception):
-            with client.websocket_connect(
+        from starlette.websockets import WebSocketDisconnect
+
+        with (
+            pytest.raises(WebSocketDisconnect),
+            client.websocket_connect(
                 "/api/ws",
                 headers={"host": "127.0.0.1:18989", "origin": "http://evil.com"},
-            ):
-                pass
+            ),
+        ):
+            pass
 
     def test_ws_allows_no_origin_from_allowed_host(self):
         """Tauri 原生插件无 Origin、Host 白名单 → 允许连接。"""
@@ -90,9 +98,7 @@ class TestWebSocketSecurity:
 
         client = TestClient(self._ws_app())
         # 规避共享轮询任务未启动导致的 receive 阻塞：连接后立即关闭
-        with client.websocket_connect(
-            "/api/ws", headers={"host": "127.0.0.1:18989"}
-        ) as ws:
+        with client.websocket_connect("/api/ws", headers={"host": "127.0.0.1:18989"}) as ws:
             assert ws.receive_json()["type"] == "connected"
             ws.send_json({"type": "ping"})
             assert ws.receive_json()["type"] == "pong"
@@ -122,10 +128,12 @@ class TestWebSocketSecurity:
         monkeypatch.setattr(manager, "_connections", list(fakes))
         assert manager.active_count == 16
 
-        with pytest.raises(Exception):
-            with client.websocket_connect(
-                "/api/ws", headers={"host": "127.0.0.1:18989"}
-            ):
-                pass
+        from starlette.websockets import WebSocketDisconnect
+
+        with (
+            pytest.raises(WebSocketDisconnect),
+            client.websocket_connect("/api/ws", headers={"host": "127.0.0.1:18989"}),
+        ):
+            pass
 
         monkeypatch.setattr(manager, "_connections", [])

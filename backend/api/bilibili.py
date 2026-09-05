@@ -10,8 +10,8 @@ import asyncio
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from backend.state import ctx
 from app.crypto import decrypt_secret, encrypt_secret
+from backend.state import ctx
 from crawlers.bilibili.bili_http_client import BiliAPIError
 
 router = APIRouter()

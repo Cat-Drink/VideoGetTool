@@ -53,12 +53,11 @@ def _validate_download_dir(raw: str | None, configured: str) -> str:
         candidate = DEFAULT_CONFIGS.get("download_dir", "").strip()
     if not candidate:
         raise HTTPException(status_code=400, detail="下载目录为空")
-    if configured.strip():
-        if _resolve_dir(candidate) != _resolve_dir(configured):
-            raise HTTPException(
-                status_code=400,
-                detail="download_dir 与配置目录不一致，请在设置中修改下载目录",
-            )
+    if configured.strip() and _resolve_dir(candidate) != _resolve_dir(configured):
+        raise HTTPException(
+            status_code=400,
+            detail="download_dir 与配置目录不一致，请在设置中修改下载目录",
+        )
     return candidate
 
 
@@ -169,9 +168,7 @@ async def enqueue_download_items(
         raise HTTPException(status_code=503, detail="Service not ready")
 
     # 审计 P0-3：download_dir 必须与配置目录一致（封堵任意路径写）
-    download_dir = _validate_download_dir(
-        download_dir, ctx.config_repo.get("download_dir") or ""
-    )
+    download_dir = _validate_download_dir(download_dir, ctx.config_repo.get("download_dir") or "")
 
     # 创建任务
     task = Task(

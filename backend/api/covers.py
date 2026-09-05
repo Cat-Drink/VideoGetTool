@@ -110,10 +110,10 @@ def _is_blocked_ip(ip: str) -> bool:
         addr = ipaddress.ip_address(ip)
     except (ValueError, TypeError):
         return True
-    if isinstance(addr, ipaddress.IPv4Address):
-        # IPv4：仅保留 198.18.x.x 基准测试网段，其余私网/保留段一律拦截
-        if addr in _BENCHMARK_NETWORK:
-            return False
+    # IPv4：仅放行 198.18.x.x 基准测试网段（Clash TUN 虚拟网关），
+    # IPv6 无该网段概念；and 短路保证 IPv6 不触发 IPv4 网络比对（N1）
+    if isinstance(addr, ipaddress.IPv4Address) and addr in _BENCHMARK_NETWORK:
+        return False
     return (
         addr.is_private
         or addr.is_loopback

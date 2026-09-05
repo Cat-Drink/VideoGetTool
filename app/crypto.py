@@ -84,9 +84,7 @@ def encrypt_secret(plain: str) -> str:
     if not plain:
         return plain
     if os.name != "nt":
-        logger.warning(
-            "非 Windows 平台无法使用 DPAPI，凭据将明文存储（仅测试/开发场景）"
-        )
+        logger.warning("非 Windows 平台无法使用 DPAPI，凭据将明文存储（仅测试/开发场景）")
         return plain
     return _MARKER + base64.b64encode(_protect(plain.encode("utf-8"))).decode("ascii")
 
@@ -103,7 +101,7 @@ def decrypt_secret(value: str) -> str:
     if not value or not value.startswith(_MARKER):
         return value
     try:
-        payload = base64.b64decode(value[len(_MARKER):])
+        payload = base64.b64decode(value[len(_MARKER) :])
     except (ValueError, TypeError):
         logger.warning("凭据密文 base64 解码失败，按原值返回")
         return value

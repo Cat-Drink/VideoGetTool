@@ -298,13 +298,12 @@ class TestDashReparse:
         item_repo = TaskItemRepository(dl._conn)
         item_repo.update_dash_urls(item.id, item.url, item.audio_url)
         with dl._conn:
-            dl._conn.execute(
-                "UPDATE task_items SET cid = 123 WHERE id = ?", (item.id,)
-            )
+            dl._conn.execute("UPDATE task_items SET cid = 123 WHERE id = ?", (item.id,))
         refreshed = item_repo.get(item.id)
         assert refreshed is not None
 
         calls = {"n": 0}
+
         async def fake_reparser(task_item):
             calls["n"] += 1
             return (
@@ -345,13 +344,12 @@ class TestDashReparse:
         dl, item = _make_dash_item(download_dir=str(tmp_path))
         final_path = tmp_path / "测试作者 - 测试视频.mp4"
         with dl._conn:
-            dl._conn.execute(
-                "UPDATE task_items SET cid = 123 WHERE id = ?", (item.id,)
-            )
+            dl._conn.execute("UPDATE task_items SET cid = 123 WHERE id = ?", (item.id,))
         refreshed = TaskItemRepository(dl._conn).get(item.id)
         assert refreshed is not None
 
         calls = {"n": 0}
+
         async def fake_reparser(task_item):
             calls["n"] += 1
             return ("https://cdn2.example.com/v-new.m4s", "https://cdn2.example.com/a-new.m4s")
@@ -370,9 +368,7 @@ class TestDashReparse:
         assert result.success is False
         assert calls["n"] == 1  # 只重解析一次
         mock_merge.assert_not_awaited()
-        row = dl._conn.execute(
-            "SELECT status FROM task_items WHERE id=?", (item.id,)
-        ).fetchone()
+        row = dl._conn.execute("SELECT status FROM task_items WHERE id=?", (item.id,)).fetchone()
         assert row["status"] == "failed"
 
     @pytest.mark.asyncio
@@ -381,9 +377,7 @@ class TestDashReparse:
         dl, item = _make_dash_item(download_dir=str(tmp_path))
         final_path = tmp_path / "测试作者 - 测试视频.mp4"
         with dl._conn:
-            dl._conn.execute(
-                "UPDATE task_items SET cid = 123 WHERE id = ?", (item.id,)
-            )
+            dl._conn.execute("UPDATE task_items SET cid = 123 WHERE id = ?", (item.id,))
         refreshed = TaskItemRepository(dl._conn).get(item.id)
         assert refreshed is not None
 

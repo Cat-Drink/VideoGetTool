@@ -35,9 +35,7 @@ def _is_contained(path: Path, base: Path) -> bool:
     try:
         resolved_base = base.resolve(strict=False)
         resolved_path = path.resolve(strict=False)
-        return os.path.commonpath(
-            [str(resolved_base), str(resolved_path)]
-        ) == str(resolved_base)
+        return os.path.commonpath([str(resolved_base), str(resolved_path)]) == str(resolved_base)
     except (OSError, ValueError):
         return False
 

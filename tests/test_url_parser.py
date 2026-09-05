@@ -679,4 +679,3 @@ class TestIsDouyinUrl:
     def test_invalid_scheme_rejected(self):
         assert not URLParser._is_douyin_url("ftp://v.douyin.com/x")
         assert not URLParser._is_douyin_url("not-a-url")
-

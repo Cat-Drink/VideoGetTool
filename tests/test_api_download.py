@@ -743,14 +743,10 @@ class TestExtensionWhitelist:
         from downloader.downloader import Downloader
 
         for ext in (".bat", ".exe", ".url", ".com", ".js", ".m3u8", ".mpd", ".html"):
-            assert (
-                Downloader._extract_extension(f"https://evil.com/x{ext}", "video") == ".mp4"
-            )
+            assert Downloader._extract_extension(f"https://evil.com/x{ext}", "video") == ".mp4"
 
     def test_no_suffix_defaults(self):
         from downloader.downloader import Downloader
 
         assert Downloader._extract_extension("https://cd.com/video?id=1", "video") == ".mp4"
-        assert (
-            Downloader._extract_extension("https://cd.com/img?id=1", "image_set") == ".jpg"
-        )
+        assert Downloader._extract_extension("https://cd.com/img?id=1", "image_set") == ".jpg"

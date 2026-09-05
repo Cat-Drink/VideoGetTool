@@ -301,9 +301,7 @@ class URLParser:
             return str(response.url)
         resolved = urljoin(short_url, location)
         if not self._is_douyin_url(resolved):
-            raise InvalidURLFormatError(
-                f"短链重定向到非抖音域名，已拒绝: {resolved[:120]}"
-            )
+            raise InvalidURLFormatError(f"短链重定向到非抖音域名，已拒绝: {resolved[:120]}")
         return resolved
 
     async def parse(self, text: str) -> ParsedURL:
