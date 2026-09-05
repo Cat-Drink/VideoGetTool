@@ -24,6 +24,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import ipaddress
 import socket
 
@@ -136,8 +137,13 @@ class _SSRFGuardTransport(AsyncHTTPTransport):
         host = request.url.host
         if host:
             port = request.url.port or (443 if request.url.scheme == "https" else 80)
+            # 审计 M1：同步 socket.getaddrinfo 会阻塞事件循环（慢 DNS = DoS），
+            # 改用 loop.getaddrinfo 协程化解析。
+            loop = asyncio.get_running_loop()
             try:
-                addrinfos = socket.getaddrinfo(host, port)
+                addrinfos = await loop.getaddrinfo(
+                    host, port, type=socket.SOCK_STREAM
+                )
             except OSError as exc:
                 raise httpx.ConnectError(f"DNS resolution failed for {host}: {exc}") from exc
             for info in addrinfos:
