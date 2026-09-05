@@ -254,6 +254,10 @@ class BiliUserCrawler:
             if page >= total_pages:
                 break
             page += 1
+            # 审计 M11/D3：翻页限速，压低短时请求脉冲，降低 -412 风控概率
+            from crawlers.http_client import pagination_throttle
+
+            await pagination_throttle()
 
         has_more = bool(total_count) and fetched < total_count
         return items, has_more, total_count
@@ -336,3 +340,7 @@ class BiliUserCrawler:
             if page >= total_pages:
                 break
             page += 1
+            # 审计 M11/D3：翻页限速，压低短时请求脉冲，降低 -412 风控概率
+            from crawlers.http_client import pagination_throttle
+
+            await pagination_throttle()

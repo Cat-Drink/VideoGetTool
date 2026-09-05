@@ -49,6 +49,9 @@ export interface WsMessage {
   total_count?: number;
   message?: string;
   timestamp?: string;
+  /** v0.4.1 订阅模式：订阅扫描发现新作品事件 */
+  subscription_id?: number;
+  new_count?: number;
 }
 
 /** 关闭当前 WebSocket 连接（兼容两种模式） */

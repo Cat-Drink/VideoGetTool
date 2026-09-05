@@ -22,8 +22,13 @@
     "shell:default",
     "shell:allow-open",
     "window-state:default",
-    "window-state:allow-restore-state",
-    "websocket:default",
+    {
+      "identifier": "websocket:default",
+      "allow": [
+        { "url": "ws://127.0.0.1:18989" },
+        { "url": "ws://localhost:18989" }
+      ]
+    },
     "window-state:allow-save-window-state"
   ]
 }

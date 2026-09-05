@@ -28,7 +28,7 @@
 ; v0.2.1：ISPP 守卫支持 CI 注入版本号
 ; 本地编译用默认值 0.2.0；CI 用 ISCC /DMyAppVersion=<tag版本> 覆盖
 #ifndef MyAppVersion
-  #define MyAppVersion "0.4.0"
+  #define MyAppVersion "0.4.1"
 #endif
 #define MyAppPublisher "VideoGetTool Contributors"
 #define MyAppExeName "VideoGetTool.exe"
@@ -79,9 +79,9 @@ WizardStyle=modern
 DisableProgramGroupPage=yes
 
 [Languages]
-; 简体中文（默认）
-Name: "english"; MessagesFile: "compiler:Default.isl"
-; 英文（备选）
+; 简体中文（默认，需 Inno Setup 6 自带 Languages\ChineseSimplified.isl）
+Name: "chinesesimplified"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
+; 英文（可选）
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]

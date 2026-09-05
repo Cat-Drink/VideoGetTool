@@ -5,6 +5,9 @@
 
 from __future__ import annotations
 
+import os
+from urllib.parse import urlsplit
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
@@ -12,6 +15,37 @@ from app.config import DEFAULT_CONFIGS
 from backend.state import ctx
 
 router = APIRouter()
+
+# 审计 M5：custom_sound_url 准入扩展名（new Audio / play_wav_sound 使用）
+_SOUND_EXTENSIONS: tuple[str, ...] = (".mp3", ".wav", ".ogg", ".m4a", ".aac")
+
+
+def _validate_sound_url(value: str) -> None:
+    """custom_sound_url 准入：http(s)/file URL 或本地绝对路径，且为音频扩展名。
+
+    参数:
+        value: 待校验的 custom_sound_url（空串表示清除，直接放行）。
+
+    异常:
+        HTTPException(400): 扩展名或格式不合法。
+    """
+    if not value:
+        return
+    lower = value.lower()
+    if not lower.endswith(_SOUND_EXTENSIONS):
+        raise HTTPException(
+            status_code=400,
+            detail="custom_sound_url 仅支持音频文件（mp3/wav/ogg/m4a/aac）",
+        )
+    parts = urlsplit(value)
+    if parts.scheme in ("http", "https", "file") and parts.hostname:
+        return
+    if os.path.isabs(value):  # Windows 盘符路径 / UNC 路径
+        return
+    raise HTTPException(
+        status_code=400,
+        detail="custom_sound_url 格式不支持，需为 http(s)/file URL 或本地绝对路径",
+    )
 
 
 # === 请求/响应模型 ===
@@ -77,7 +111,13 @@ async def update_config(req: UpdateConfigRequest):
         raise HTTPException(status_code=503, detail="Service not ready")
 
     if req.download_dir is not None:
-        ctx.config_repo.set("download_dir", req.download_dir)
+        raw = req.download_dir.strip()
+        if not raw:
+            raise HTTPException(status_code=400, detail="下载目录不能为空")
+        # 审计 N2：规范化存储（展开用户目录 + 绝对路径），
+        # 与入队接口的 _validate_download_dir 严格一致校验配套
+        abs_dir = os.path.abspath(os.path.expanduser(raw))
+        ctx.config_repo.set("download_dir", abs_dir)
     if req.concurrency is not None:
         ctx.config_repo.set("concurrency", str(req.concurrency))
         # 动态调整调度器并发数
@@ -98,6 +138,8 @@ async def update_config(req: UpdateConfigRequest):
     if req.sound_volume is not None:
         ctx.config_repo.set("sound_volume", str(req.sound_volume))
     if req.custom_sound_url is not None:
+        # 审计 M5：拦截非音频扩展名/内网探测型 URL（new Audio 会发起请求）
+        _validate_sound_url(req.custom_sound_url)
         ctx.config_repo.set("custom_sound_url", req.custom_sound_url)
 
     return {"message": "配置已更新"}

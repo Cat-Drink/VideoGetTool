@@ -24,8 +24,35 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  gitleaks:
+    name: Gitleaks Secret Scan
+    # gitleaks 跨平台；在 ubuntu 上各版本均有 linux_x64.tar.gz 发布资产，
+    # 不存在 Windows 平台某版本仅有 zip 资产导致的下载 404。
+    # checkout 用 fetch-depth: 0 拉全历史：PR 事件下 gitleaks-action 需要
+    # 解析 base^..head 提交范围，浅克隆会导致
+    # "fatal: ambiguous argument ... unknown revision"。
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 检出代码（完整历史）
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # 审计 S5：secrets 硬编码扫描（gitleaks，含历史提交）
+      # 注：固定官方稳定版 v2.3.1（禁止裸 @v2）；该 action 不支持
+      # gitleaks-version 输入（会被丢弃），因此不设 with，由 action 自动
+      # 选择版本 —— Linux runner 各版本均有 linux_x64.tar.gz 资产，无 404。
+      # 不设置 ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION。
+      - name: Gitleaks 密钥扫描
+        uses: gitleaks/gitleaks-action@v2.3.1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_LICENSE: ""
+
   lint-test:
     name: Lint & Test
+    # 本项目为 Windows 桌面应用，Python 单测/覆盖率在 Windows runner 上执行
     runs-on: windows-latest
 
     steps:
@@ -43,6 +70,12 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
+
+      # 审计 S5：Python 依赖漏洞审计。
+      # 注：pip-audit 先以 continue-on-error 运行 —— 待基线清零后再收紧为硬门禁。
+      - name: pip-audit 依赖漏洞审计
+        continue-on-error: true
+        run: pip-audit
 
       - name: Ruff 检查
         run: ruff check .
@@ -95,6 +128,15 @@ jobs:
         run: |
           cd frontend
           npx tsc --noEmit
+
+      # 审计 S5：前端依赖漏洞审计。
+      # 注：npm audit 命中本地镜像缺陷（registry 不支持 audit 端点）时可能失败，
+      # 以 continue-on-error 运行避免阻塞主流程；CI 走默认 registry 时正常生效。
+      - name: npm audit 漏洞审计
+        continue-on-error: true
+        run: |
+          cd frontend
+          npm audit --audit-level=high || true
 
       - name: 前端构建
         run: |

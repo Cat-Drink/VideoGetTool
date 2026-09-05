@@ -24,6 +24,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import ipaddress
 import socket
 
@@ -108,9 +109,11 @@ def _is_blocked_ip(ip: str) -> bool:
     """
     try:
         addr = ipaddress.ip_address(ip)
-    except ValueError:
+    except (ValueError, TypeError):
         return True
-    if addr in _BENCHMARK_NETWORK:
+    # IPv4：仅放行 198.18.x.x 基准测试网段（Clash TUN 虚拟网关），
+    # IPv6 无该网段概念；and 短路保证 IPv6 不触发 IPv4 网络比对（N1）
+    if isinstance(addr, ipaddress.IPv4Address) and addr in _BENCHMARK_NETWORK:
         return False
     return (
         addr.is_private
@@ -134,8 +137,11 @@ class _SSRFGuardTransport(AsyncHTTPTransport):
         host = request.url.host
         if host:
             port = request.url.port or (443 if request.url.scheme == "https" else 80)
+            # 审计 M1：同步 socket.getaddrinfo 会阻塞事件循环（慢 DNS = DoS），
+            # 改用 loop.getaddrinfo 协程化解析。
+            loop = asyncio.get_running_loop()
             try:
-                addrinfos = socket.getaddrinfo(host, port)
+                addrinfos = await loop.getaddrinfo(host, port, type=socket.SOCK_STREAM)
             except OSError as exc:
                 raise httpx.ConnectError(f"DNS resolution failed for {host}: {exc}") from exc
             for info in addrinfos:

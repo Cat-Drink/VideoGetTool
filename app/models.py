@@ -67,6 +67,14 @@ class CookieStatus(StrEnum):
     UNTESTED = "untested"  # 未测试
 
 
+class SubscriptionItemStatus(StrEnum):
+    """订阅作品状态。"""
+
+    NEW = "new"  # 新发现，待用户处理
+    ACCEPTED = "accepted"  # 用户已接受（已入队下载）
+    SKIPPED = "skipped"  # 用户已跳过
+
+
 # === dataclass 定义 ===
 # 字段顺序与表列顺序一致，可变默认值用 field(default=...)
 
@@ -161,6 +169,45 @@ class Config:
 
     key: str
     value: str
+
+
+@dataclass
+class Subscription:
+    """订阅表对应数据类（v0.4.1 订阅模式）。"""
+
+    id: int | None
+    url: str  # 用户主页链接
+    sec_user_id: str  # 解析出的 sec_user_id
+    name: str = ""  # 订阅名称（用户备注，可空）
+    interval_minutes: int = 30  # 扫描间隔（分钟）
+    enabled: int = 1  # 1 启用 / 0 停用
+    max_items: int = 30  # 每次扫描最多检查的新作品数
+    last_scan_at: str | None = None  # 上次扫描时间
+    last_scan_status: str = ""  # 上次扫描状态：'' 未扫描 / 'ok' / 'error'
+    last_scan_error: str | None = None  # 上次扫描错误信息
+    created_at: str = ""
+    updated_at: str = ""
+
+
+@dataclass
+class SubscriptionItem:
+    """订阅作品表对应数据类（v0.4.1 订阅模式）。"""
+
+    id: int | None
+    subscription_id: int
+    aweme_id: str
+    url: str
+    title: str | None = None
+    author: str | None = None
+    author_sec_id: str | None = None
+    type: str = "video"
+    duration: str | None = None
+    image_count: int | None = None
+    cover_url: str | None = None
+    publish_time: str | None = None
+    status: str = SubscriptionItemStatus.NEW.value
+    created_at: str = ""
+    updated_at: str = ""
 
 
 # === 时间戳辅助 ===

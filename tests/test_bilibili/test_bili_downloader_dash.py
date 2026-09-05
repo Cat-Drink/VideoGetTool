@@ -284,3 +284,116 @@ class TestBiliReferer:
         item = self._make_item(bvid=None, audio_url="")
         assert dl._is_bilibili_item(item) is False
         assert dl._get_download_headers(item) == {}
+
+
+class TestDashReparse:
+    """审计 M10：B 站 DASH 直链过期（403/404）自动重解析重试。"""
+
+    @pytest.mark.asyncio
+    async def test_dash_403_triggers_reparse_and_succeeds(self, tmp_path: Path) -> None:
+        """视频流 403 → bili_reparser 换新 URL → 重试成功并标记 completed。"""
+        dl, item = _make_dash_item(download_dir=str(tmp_path))
+        final_path = tmp_path / "测试作者 - 测试视频.mp4"
+        # 需要 bvid+cid 才会触发重解析
+        item_repo = TaskItemRepository(dl._conn)
+        item_repo.update_dash_urls(item.id, item.url, item.audio_url)
+        with dl._conn:
+            dl._conn.execute("UPDATE task_items SET cid = 123 WHERE id = ?", (item.id,))
+        refreshed = item_repo.get(item.id)
+        assert refreshed is not None
+
+        calls = {"n": 0}
+
+        async def fake_reparser(task_item):
+            calls["n"] += 1
+            return (
+                "https://cdn2.example.com/video-new.m4s",
+                "https://cdn2.example.com/audio-new.m4s",
+            )
+
+        dl2 = _make_downloader(conn=dl._conn)
+        dl2._bili_reparser = fake_reparser
+
+        def fake_download_single_file(task_item, url, final_path, **kwargs):
+            if "cdn.example.com" in url:  # 旧直链 → 403
+                return DownloadResult(success=False, error="HTTP 403")
+            # 新直链 → 写文件成功
+            Path(str(final_path)).write_bytes(b"stream")
+            return DownloadResult(success=True, local_path=str(final_path))
+
+        with (
+            patch.object(dl2, "_download_single_file", side_effect=fake_download_single_file),
+            patch.object(dl2, "_merge_dash_streams", new_callable=AsyncMock) as mock_merge,
+        ):
+            result = await dl2._download_dash(refreshed, final_path)
+
+        assert result.success is True
+        assert calls["n"] == 1
+        mock_merge.assert_awaited_once()
+        # 新 URL 已回填到内存与 DB
+        assert refreshed.url == "https://cdn2.example.com/video-new.m4s"
+        row = dl2._conn.execute(
+            "SELECT url, audio_url FROM task_items WHERE id=?", (item.id,)
+        ).fetchone()
+        assert row["url"] == "https://cdn2.example.com/video-new.m4s"
+        assert row["audio_url"] == "https://cdn2.example.com/audio-new.m4s"
+
+    @pytest.mark.asyncio
+    async def test_dash_reparse_only_once(self, tmp_path: Path) -> None:
+        """重解析后仍 403 → 不再二次重解析，直接标记 failed。"""
+        dl, item = _make_dash_item(download_dir=str(tmp_path))
+        final_path = tmp_path / "测试作者 - 测试视频.mp4"
+        with dl._conn:
+            dl._conn.execute("UPDATE task_items SET cid = 123 WHERE id = ?", (item.id,))
+        refreshed = TaskItemRepository(dl._conn).get(item.id)
+        assert refreshed is not None
+
+        calls = {"n": 0}
+
+        async def fake_reparser(task_item):
+            calls["n"] += 1
+            return ("https://cdn2.example.com/v-new.m4s", "https://cdn2.example.com/a-new.m4s")
+
+        dl._bili_reparser = fake_reparser
+
+        def fake_download_single_file(task_item, url, final_path, **kwargs):
+            return DownloadResult(success=False, error="HTTP 403")
+
+        with (
+            patch.object(dl, "_download_single_file", side_effect=fake_download_single_file),
+            patch.object(dl, "_merge_dash_streams", new_callable=AsyncMock) as mock_merge,
+        ):
+            result = await dl._download_dash(refreshed, final_path)
+
+        assert result.success is False
+        assert calls["n"] == 1  # 只重解析一次
+        mock_merge.assert_not_awaited()
+        row = dl._conn.execute("SELECT status FROM task_items WHERE id=?", (item.id,)).fetchone()
+        assert row["status"] == "failed"
+
+    @pytest.mark.asyncio
+    async def test_dash_reparse_none_keeps_original_failure(self, tmp_path: Path) -> None:
+        """重解析器返回 None（无新直链）→ 维持原 403 失败。"""
+        dl, item = _make_dash_item(download_dir=str(tmp_path))
+        final_path = tmp_path / "测试作者 - 测试视频.mp4"
+        with dl._conn:
+            dl._conn.execute("UPDATE task_items SET cid = 123 WHERE id = ?", (item.id,))
+        refreshed = TaskItemRepository(dl._conn).get(item.id)
+        assert refreshed is not None
+
+        async def fake_reparser(task_item):
+            return None
+
+        dl._bili_reparser = fake_reparser
+
+        async def fake_download_single_file(task_item, url, final_path, **kwargs):
+            return DownloadResult(success=False, error="HTTP 403")
+
+        with (
+            patch.object(dl, "_download_single_file", side_effect=fake_download_single_file),
+            patch.object(dl, "_merge_dash_streams", new_callable=AsyncMock),
+        ):
+            result = await dl._download_dash(refreshed, final_path)
+
+        assert result.success is False
+        assert "HTTP 403" in (result.error or "")

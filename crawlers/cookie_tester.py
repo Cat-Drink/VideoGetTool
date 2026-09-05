@@ -28,6 +28,7 @@ from crawlers.exceptions import (
     RateLimitedError,
     VerifyRequiredError,
 )
+from crawlers.utils import safe_int
 
 if TYPE_CHECKING:
     from crawlers.http_client import HttpClient
@@ -188,8 +189,8 @@ class CookieTester:
             )
 
         status_code = payload.get("status_code")
-        # 抖音 API 有时返回字符串，做防御性 int 转换
-        if int(status_code or 0) != 0:
+        # 审计 S8：抖音 API 有时返回字符串/非数字，用 safe_int 防 ValueError
+        if safe_int(status_code) != 0:
             status_msg = payload.get("status_msg") or "未知错误"
             logger.warning("Cookie 测试失败：status_code=%s msg=%s", status_code, status_msg)
             return CookieTestResult(

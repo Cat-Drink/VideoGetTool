@@ -27,6 +27,8 @@ from downloader.downloader import Downloader
 from downloader.progress_reporter import ProgressReporter, ProgressUpdate
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
     from app.repositories import CookieRepository
     from crawlers.video_parser import VideoParser
 
@@ -80,6 +82,7 @@ class Scheduler:
         on_progress: Callable[[list[ProgressUpdate]], None] | None = None,
         video_parser: VideoParser | None = None,
         cookie_repository: CookieRepository | None = None,
+        bili_reparser: Callable[[TaskItem], Awaitable[tuple[str, str] | None]] | None = None,
     ) -> None:
         """初始化调度器。
 
@@ -132,6 +135,7 @@ class Scheduler:
             conn=conn,
             video_parser=video_parser,
             cookie_repository=cookie_repository,
+            bili_reparser=bili_reparser,
         )
 
         # 内部状态

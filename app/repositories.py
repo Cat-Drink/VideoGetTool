@@ -14,7 +14,17 @@ from __future__ import annotations
 
 import sqlite3
 
-from app.models import Cookie, Metadata, Task, TaskItem, now_iso
+from app.crypto import decrypt_secret, encrypt_secret, is_encrypted
+from app.models import (
+    Cookie,
+    Metadata,
+    Subscription,
+    SubscriptionItem,
+    SubscriptionItemStatus,
+    Task,
+    TaskItem,
+    now_iso,
+)
 
 # === 行映射私有函数 ===
 
@@ -116,6 +126,45 @@ def _row_to_metadata(row: sqlite3.Row) -> Metadata:
         collect_count=row["collect_count"],
         tags=row["tags"],
         raw_json=row["raw_json"],
+    )
+
+
+def _row_to_subscription(row: sqlite3.Row) -> Subscription:
+    """将 sqlite3.Row 映射为 Subscription 实例。"""
+    return Subscription(
+        id=row["id"],
+        url=row["url"],
+        sec_user_id=row["sec_user_id"],
+        name=row["name"],
+        interval_minutes=row["interval_minutes"],
+        enabled=row["enabled"],
+        max_items=row["max_items"],
+        last_scan_at=row["last_scan_at"],
+        last_scan_status=row["last_scan_status"],
+        last_scan_error=row["last_scan_error"],
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
+    )
+
+
+def _row_to_subscription_item(row: sqlite3.Row) -> SubscriptionItem:
+    """将 sqlite3.Row 映射为 SubscriptionItem 实例。"""
+    return SubscriptionItem(
+        id=row["id"],
+        subscription_id=row["subscription_id"],
+        aweme_id=row["aweme_id"],
+        url=row["url"],
+        title=row["title"],
+        author=row["author"],
+        author_sec_id=row["author_sec_id"],
+        type=row["type"],
+        duration=row["duration"],
+        image_count=row["image_count"],
+        cover_url=row["cover_url"],
+        publish_time=row["publish_time"],
+        status=row["status"],
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
     )
 
 
@@ -435,6 +484,20 @@ class TaskItemRepository:
                 (selected_image_indices, now_iso(), item_id),
             )
 
+    def update_dash_urls(self, item_id: int, url: str, audio_url: str) -> None:
+        """更新任务项的视频/音频流 URL（审计 M10：DASH 直链过期重解析回填）。
+
+        Args:
+            item_id: 任务项 id
+            url: 新的视频流 URL
+            audio_url: 新的音频流 URL
+        """
+        with self._conn:
+            self._conn.execute(
+                "UPDATE task_items SET url = ?, audio_url = ?, updated_at = ? WHERE id = ?",
+                (url, audio_url, now_iso(), item_id),
+            )
+
     def update_dash_merged(self, item_id: int, merged: bool = True) -> None:
         """标记 DASH 音视频流是否已合并完成（v0.4.0）。
 
@@ -488,12 +551,36 @@ class CookieRepository:
     def __init__(self, conn: sqlite3.Connection):
         self._conn = conn
 
+    def _load_cookie(self, row: sqlite3.Row) -> Cookie:
+        """行 → Cookie，content 解密（审计 H3）。
+
+        读到旧版本明文时惰性迁移：原地 UPDATE 为密文后返回明文，
+        避免下次读取重复解密；解密失败则按原值返回（不阻断读取）。
+        """
+        cookie = _row_to_cookie(row)
+        raw = row["content"]
+        if not raw:
+            return cookie
+        if not is_encrypted(raw):
+            enc = encrypt_secret(raw)
+            if enc and cookie.id is not None:
+                with self._conn:
+                    self._conn.execute(
+                        "UPDATE cookies SET content = ? WHERE id = ?",
+                        (enc, cookie.id),
+                    )
+            return cookie
+        cookie.content = decrypt_secret(raw)
+        return cookie
+
     def add(self, cookie: Cookie) -> int:
         """插入 Cookie，返回新记录 id。
 
-        created_at 若空则用 now_iso() 填充。
+        content 落库前经 DPAPI 加密（审计 H3）；created_at 若空则用
+        now_iso() 填充。
         """
         created_at = cookie.created_at or now_iso()
+        encrypted = encrypt_secret(cookie.content) if cookie.content else ""
         with self._conn:
             cursor = self._conn.execute(
                 """
@@ -503,7 +590,7 @@ class CookieRepository:
                 VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    cookie.content,
+                    encrypted,
                     cookie.label,
                     cookie.status,
                     cookie.last_used,
@@ -535,12 +622,12 @@ class CookieRepository:
             LIMIT 1
             """,
         ).fetchone()
-        return _row_to_cookie(row) if row else None
+        return self._load_cookie(row) if row else None
 
     def get_by_id(self, cookie_id: int) -> Cookie | None:
         """按 id 查询 Cookie，无结果返回 None。"""
         row = self._conn.execute("SELECT * FROM cookies WHERE id = ?", (cookie_id,)).fetchone()
-        return _row_to_cookie(row) if row else None
+        return self._load_cookie(row) if row else None
 
     def update_status(self, cookie_id: int, status: str) -> None:
         """更新 Cookie 状态。"""
@@ -574,12 +661,12 @@ class CookieRepository:
         rows = self._conn.execute(
             "SELECT * FROM cookies WHERE status != 'invalid' ORDER BY id"
         ).fetchall()
-        return [_row_to_cookie(row) for row in rows]
+        return [self._load_cookie(row) for row in rows]
 
     def get_all(self) -> list[Cookie]:
         """查询所有 Cookie，按 created_at 排序。"""
         rows = self._conn.execute("SELECT * FROM cookies ORDER BY created_at").fetchall()
-        return [_row_to_cookie(row) for row in rows]
+        return [self._load_cookie(row) for row in rows]
 
 
 class ConfigRepository:
@@ -672,3 +759,240 @@ class MetadataRepository:
             "SELECT * FROM metadata WHERE task_item_id = ?", (task_item_id,)
         ).fetchone()
         return _row_to_metadata(row) if row else None
+
+
+class SubscriptionRepository:
+    """订阅表 + 订阅作品表 Repository（v0.4.1 订阅模式）。"""
+
+    def __init__(self, conn: sqlite3.Connection):
+        self._conn = conn
+
+    # === 订阅 CRUD ===
+
+    def create(self, sub: Subscription) -> int:
+        """插入订阅，返回新记录 id。"""
+        now = now_iso()
+        with self._conn:
+            cursor = self._conn.execute(
+                """
+                INSERT INTO subscriptions
+                    (url, sec_user_id, name, interval_minutes, enabled,
+                     max_items, last_scan_at, last_scan_status, last_scan_error,
+                     created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    sub.url,
+                    sub.sec_user_id,
+                    sub.name,
+                    sub.interval_minutes,
+                    sub.enabled,
+                    sub.max_items,
+                    sub.last_scan_at,
+                    sub.last_scan_status,
+                    sub.last_scan_error,
+                    sub.created_at or now,
+                    sub.updated_at or now,
+                ),
+            )
+            return cursor.lastrowid
+
+    def get(self, sub_id: int) -> Subscription | None:
+        """按 id 查询订阅，无结果返回 None。"""
+        row = self._conn.execute("SELECT * FROM subscriptions WHERE id = ?", (sub_id,)).fetchone()
+        return _row_to_subscription(row) if row else None
+
+    def get_by_sec_user_id(self, sec_user_id: str) -> Subscription | None:
+        """按 sec_user_id 查询订阅（防止重复订阅）。"""
+        row = self._conn.execute(
+            "SELECT * FROM subscriptions WHERE sec_user_id = ? ORDER BY id LIMIT 1",
+            (sec_user_id,),
+        ).fetchone()
+        return _row_to_subscription(row) if row else None
+
+    def get_all(self) -> list[Subscription]:
+        """查询所有订阅，按创建时间排序。"""
+        rows = self._conn.execute("SELECT * FROM subscriptions ORDER BY created_at").fetchall()
+        return [_row_to_subscription(row) for row in rows]
+
+    def get_enabled(self) -> list[Subscription]:
+        """查询所有启用状态的订阅。"""
+        rows = self._conn.execute(
+            "SELECT * FROM subscriptions WHERE enabled = 1 ORDER BY created_at"
+        ).fetchall()
+        return [_row_to_subscription(row) for row in rows]
+
+    def exists_sec_user_id(self, sec_user_id: str) -> bool:
+        """检查 sec_user_id 是否已订阅（去重）。"""
+        row = self._conn.execute(
+            "SELECT 1 FROM subscriptions WHERE sec_user_id = ? LIMIT 1", (sec_user_id,)
+        ).fetchone()
+        return row is not None
+
+    def update(
+        self,
+        sub_id: int,
+        *,
+        name: str | None = None,
+        interval_minutes: int | None = None,
+        enabled: int | None = None,
+        max_items: int | None = None,
+        last_scan_at: str | None = None,
+        last_scan_status: str | None = None,
+        last_scan_error: str | None = None,
+    ) -> None:
+        """更新订阅字段（仅更新非 None 字段）。"""
+        sets: list[str] = []
+        params: list = []
+        if name is not None:
+            sets.append("name = ?")
+            params.append(name)
+        if interval_minutes is not None:
+            sets.append("interval_minutes = ?")
+            params.append(interval_minutes)
+        if enabled is not None:
+            sets.append("enabled = ?")
+            params.append(enabled)
+        if max_items is not None:
+            sets.append("max_items = ?")
+            params.append(max_items)
+        if last_scan_at is not None:
+            sets.append("last_scan_at = ?")
+            params.append(last_scan_at)
+        if last_scan_status is not None:
+            sets.append("last_scan_status = ?")
+            params.append(last_scan_status)
+        if last_scan_error is not None:
+            sets.append("last_scan_error = ?")
+            params.append(last_scan_error)
+        sets.append("updated_at = ?")
+        params.append(now_iso())
+        params.append(sub_id)
+        with self._conn:
+            self._conn.execute(f"UPDATE subscriptions SET {', '.join(sets)} WHERE id = ?", params)
+
+    def delete(self, sub_id: int) -> None:
+        """删除订阅（外键 ON DELETE CASCADE 级联删除 subscription_items）。"""
+        with self._conn:
+            self._conn.execute("DELETE FROM subscriptions WHERE id = ?", (sub_id,))
+
+    # === 订阅作品 CRUD ===
+
+    def add_item(self, item: SubscriptionItem) -> int:
+        """插入订阅作品，返回新记录 id。"""
+        now = now_iso()
+        with self._conn:
+            cursor = self._conn.execute(
+                """
+                INSERT OR IGNORE INTO subscription_items
+                    (subscription_id, aweme_id, url, title, author, author_sec_id,
+                     type, duration, image_count, cover_url, publish_time,
+                     status, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    item.subscription_id,
+                    item.aweme_id,
+                    item.url,
+                    item.title,
+                    item.author,
+                    item.author_sec_id,
+                    item.type,
+                    item.duration,
+                    item.image_count,
+                    item.cover_url,
+                    item.publish_time,
+                    item.status,
+                    item.created_at or now,
+                    item.updated_at or now,
+                ),
+            )
+            if cursor.lastrowid == 0:
+                # 已存在相同 (subscription_id, aweme_id)，忽略并返回既有记录 id
+                existing = self._conn.execute(
+                    "SELECT id FROM subscription_items "
+                    "WHERE subscription_id = ? AND aweme_id = ?",
+                    (item.subscription_id, item.aweme_id),
+                ).fetchone()
+                return existing["id"] if existing else 0
+            return cursor.lastrowid
+
+    def get_item(self, item_id: int) -> SubscriptionItem | None:
+        """按 id 查询订阅作品。"""
+        row = self._conn.execute(
+            "SELECT * FROM subscription_items WHERE id = ?", (item_id,)
+        ).fetchone()
+        return _row_to_subscription_item(row) if row else None
+
+    def get_item_by_aweme_id(self, sub_id: int, aweme_id: str) -> SubscriptionItem | None:
+        """按订阅 + aweme_id 查询作品（去重判断）。"""
+        row = self._conn.execute(
+            "SELECT * FROM subscription_items "
+            "WHERE subscription_id = ? AND aweme_id = ? LIMIT 1",
+            (sub_id, aweme_id),
+        ).fetchone()
+        return _row_to_subscription_item(row) if row else None
+
+    def get_items(
+        self, sub_id: int, status: str | None = None, limit: int | None = None
+    ) -> list[SubscriptionItem]:
+        """查询订阅的作品列表。
+
+        status 为 None 时查询全部；否则按状态过滤。默认按创建时间倒序。
+        """
+        sql = "SELECT * FROM subscription_items WHERE subscription_id = ?"
+        params: list = [sub_id]
+        if status is not None:
+            sql += " AND status = ?"
+            params.append(status)
+        sql += " ORDER BY created_at DESC"
+        if limit is not None:
+            sql += " LIMIT ?"
+            params.append(limit)
+        rows = self._conn.execute(sql, params).fetchall()
+        return [_row_to_subscription_item(row) for row in rows]
+
+    def get_new_items(self, sub_id: int, limit: int | None = None) -> list[SubscriptionItem]:
+        """查询订阅的新作品（status='new'）。"""
+        return self.get_items(sub_id, status=SubscriptionItemStatus.NEW.value, limit=limit)
+
+    def count_new_items(self, sub_id: int) -> int:
+        """统计订阅的新作品数量。"""
+        row = self._conn.execute(
+            "SELECT COUNT(*) AS cnt FROM subscription_items "
+            "WHERE subscription_id = ? AND status = ?",
+            (sub_id, SubscriptionItemStatus.NEW.value),
+        ).fetchone()
+        return row["cnt"] if row else 0
+
+    def count_new_items_map(self) -> dict[int, int]:
+        """返回所有订阅的新作品数量映射 {subscription_id: count}。"""
+        rows = self._conn.execute(
+            "SELECT subscription_id, COUNT(*) AS cnt FROM subscription_items "
+            "WHERE status = ? GROUP BY subscription_id",
+            (SubscriptionItemStatus.NEW.value,),
+        ).fetchall()
+        return {row["subscription_id"]: row["cnt"] for row in rows}
+
+    def update_item_status(self, item_id: int, status: str) -> None:
+        """更新订阅作品状态。"""
+        with self._conn:
+            self._conn.execute(
+                "UPDATE subscription_items SET status = ?, updated_at = ? WHERE id = ?",
+                (status, now_iso(), item_id),
+            )
+
+    def update_items_status(self, sub_id: int, from_status: str, to_status: str) -> int:
+        """批量更新某订阅下指定旧状态的作品为新状态，返回受影响行数。"""
+        with self._conn:
+            cursor = self._conn.execute(
+                "UPDATE subscription_items SET status = ?, updated_at = ? "
+                "WHERE subscription_id = ? AND status = ?",
+                (to_status, now_iso(), sub_id, from_status),
+            )
+            return cursor.rowcount
+
+    def delete_item(self, item_id: int) -> None:
+        """删除订阅作品。"""
+        with self._conn:
+            self._conn.execute("DELETE FROM subscription_items WHERE id = ?", (item_id,))

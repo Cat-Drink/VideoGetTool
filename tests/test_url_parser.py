@@ -334,7 +334,7 @@ class TestFollowRedirect:
         url_parser: URLParser,
         mock_http_client: MagicMock,
     ) -> None:
-        """响应含 Location 头 → 返回 Location 值。"""
+        """响应含 Location 头（抖音域名）→ 返回校验通过的 Location 值。"""
         mock_response = MagicMock(name="Response")
         mock_response.headers = {"location": "https://www.douyin.com/video/123"}
         mock_response.url = "https://v.douyin.com/AbCd123/"
@@ -454,9 +454,8 @@ class TestParse:
         url_parser: URLParser,
         mock_http_client: MagicMock,
     ) -> None:
-        """短链视频 → 调用 follow_redirect 拿到长链后识别，aweme_id 提取成功。"""
+        """短链视频 → follow_redirect 返回抖音域名 Location，aweme_id 提取成功。"""
         text = "https://v.douyin.com/AbCd123/"
-        # mock follow_redirect 返回视频长链
         mock_response = MagicMock(name="Response")
         mock_response.headers = {"location": "https://www.douyin.com/video/9999"}
         mock_response.url = "https://v.douyin.com/AbCd123/"
@@ -476,7 +475,7 @@ class TestParse:
         url_parser: URLParser,
         mock_http_client: MagicMock,
     ) -> None:
-        """短链主页 → 调用 follow_redirect 拿到主页长链，sec_user_id 提取成功。"""
+        """短链主页 → follow_redirect 返回抖音域名 Location，sec_user_id 提取成功。"""
         text = "https://v.douyin.com/AbCd456/"
         mock_response = MagicMock(name="Response")
         mock_response.headers = {"location": "https://www.douyin.com/user/MS4wLjABAAAAxyz"}
@@ -604,3 +603,79 @@ class TestParse:
         assert result.type == "video"
         assert result.aweme_id == "222"
         mock_http_client.get.assert_awaited_once()
+
+
+# ==================== 短链重定向安全（审计 M9） ====================
+
+
+class TestFollowRedirectSecurity:
+    """短链落地域名校验与重定向限制测试（审计 M9）。"""
+
+    async def test_redirect_to_non_douyin_rejected(
+        self,
+        url_parser: URLParser,
+        mock_http_client: MagicMock,
+    ) -> None:
+        """Location 指向非抖音域名（如内网/元数据地址）→ 拒绝。"""
+        mock_302 = MagicMock(name="Response302")
+        mock_302.status_code = 302
+        mock_302.headers = {"location": "http://169.254.169.254/latest/meta-data/"}
+        mock_http_client.get.return_value = mock_302
+
+        with pytest.raises(InvalidURLFormatError, match="非抖音域名"):
+            await url_parser.follow_redirect("https://v.douyin.com/AbCd123/")
+        # 只发起了一跳请求，未对非法主机发出后续请求
+        assert mock_http_client.get.await_count == 1
+
+    async def test_redirect_userinfo_bypass_rejected(
+        self,
+        url_parser: URLParser,
+        mock_http_client: MagicMock,
+    ) -> None:
+        """Location 用 userinfo@ 伪装抖音域名 → 拒绝（urlparse hostname 免疫）。"""
+        mock_302 = MagicMock(name="Response302")
+        mock_302.status_code = 302
+        mock_302.headers = {"location": "https://v.douyin.com:443@evil.com/video/1"}
+        mock_http_client.get.return_value = mock_302
+
+        with pytest.raises(InvalidURLFormatError):
+            await url_parser.follow_redirect("https://v.douyin.com/AbCd123/")
+
+    async def test_relative_location_resolved(
+        self,
+        url_parser: URLParser,
+        mock_http_client: MagicMock,
+    ) -> None:
+        """相对 Location（/video/1）→ urljoin 解析后校验。"""
+        mock_response = MagicMock(name="Response")
+        mock_response.headers = {"location": "/video/123"}
+        mock_response.url = "https://v.douyin.com/AbCd123/"
+        mock_http_client.get.return_value = mock_response
+
+        result = await url_parser.follow_redirect("https://v.douyin.com/AbCd123/")
+        # urljoin(short_url, "/video/123") → https://v.douyin.com/video/123
+        assert result == "https://v.douyin.com/video/123"
+
+
+class TestIsDouyinUrl:
+    """_is_douyin_url 域名判定（审计 M9：urlparse 提取 host）。"""
+
+    def test_userinfo_bypass_rejected(self):
+        """userinfo@ 语法伪装 → host 识别为 evil.com → 拒绝。"""
+        assert not URLParser._is_douyin_url("https://v.douyin.com:443@evil.com/x")
+        assert not URLParser._is_douyin_url("https://v.douyin.com.evil.com/x")
+        assert not URLParser._is_douyin_url("https://evil.com/v.douyin.com/video/1")
+
+    def test_trailing_dot_normalized(self):
+        """尾点（FQDN 形式 v.douyin.com.）→ 规范化后放行。"""
+        assert URLParser._is_douyin_url("https://v.douyin.com./x")
+        assert URLParser._is_douyin_url("https://V.DOUYIN.COM./x")
+
+    def test_valid_domains_accepted(self):
+        assert URLParser._is_douyin_url("https://v.douyin.com/abc")
+        assert URLParser._is_douyin_url("https://www.douyin.com/video/1")
+        assert URLParser._is_douyin_url("https://iesdouyin.com/share/slides/1")
+
+    def test_invalid_scheme_rejected(self):
+        assert not URLParser._is_douyin_url("ftp://v.douyin.com/x")
+        assert not URLParser._is_douyin_url("not-a-url")

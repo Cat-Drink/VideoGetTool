@@ -31,6 +31,7 @@ from backend.api import crawler as crawler_router
 from backend.api import download as download_router
 from backend.api import health as health_router
 from backend.api import ws as ws_router
+from backend.security import HostGuardMiddleware
 from backend.state import ctx
 
 
@@ -53,6 +54,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         ConfigRepository,
         CookieRepository,
         MetadataRepository,
+        SubscriptionRepository,
         TaskItemRepository,
         TaskRepository,
     )
@@ -62,6 +64,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     ctx.cookie_repo = CookieRepository(ctx.conn)
     ctx.config_repo = ConfigRepository(ctx.conn)
     ctx.metadata_repo = MetadataRepository(ctx.conn)
+    # v0.4.1：订阅模式
+    ctx.subscription_repo = SubscriptionRepository(ctx.conn)
 
     # 4. 爬虫层组件
     from crawlers.cookie_tester import CookieTester
@@ -77,6 +81,17 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     ctx.video_parser = VideoParser(ctx.http_client, ctx.signer)
     ctx.user_home_crawler = UserHomeCrawler(ctx.http_client, ctx.signer)
     ctx.cookie_tester = CookieTester(ctx.http_client, ctx.signer)
+
+    # 4.2. 订阅模式扫描器（v0.4.1）
+    from backend.services.subscription_scanner import SubscriptionScanner
+
+    ctx.subscription_scanner = SubscriptionScanner(
+        subscription_repo=ctx.subscription_repo,
+        url_parser=ctx.url_parser,
+        user_home_crawler=ctx.user_home_crawler,
+        cookie_repo=ctx.cookie_repo,
+        http_client=ctx.http_client,
+    )
 
     # 4.5. B 站爬虫层组件（v0.4.0）
     from crawlers.bilibili import (
@@ -200,6 +215,35 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         except Exception:
             log.exception("广播进度消息失败")
 
+    async def _reparse_bili_urls(task_item) -> tuple[str, str] | None:
+        """B 站 DASH 直链过期重解析：请求新 playurl，返回 (video_url, audio_url)。
+
+        审计 M10：任务项 url/audio_url 为服务端签发、隔天过期（403/404）；
+        重解析换取新直链后由 Downloader 回填并重试。失败返回 None。
+        """
+        if ctx.bili_video_parser is None or not task_item.bvid or not task_item.cid:
+            return None
+        try:
+            from app.crypto import decrypt_secret
+
+            cookie = None
+            if ctx.config_repo is not None:
+                cookie = decrypt_secret(ctx.config_repo.get("bilibili_cookie") or "") or None
+            result = await ctx.bili_video_parser.parse_playurl(
+                bvid=task_item.bvid, cid=int(task_item.cid), cookie=cookie
+            )
+        except Exception:
+            log.exception("B 站 DASH 重解析失败 task_item id=%s", task_item.id)
+            return None
+        if result.dash and result.video_streams and result.audio_streams:
+            video = next((s for s in result.video_streams if s.url), None)
+            audio = next((s for s in result.audio_streams if s.url), None)
+            if video and audio:
+                return (video.url, audio.url)
+        if result.url:
+            return (result.url, "")
+        return None
+
     ctx.scheduler = Scheduler(
         conn=ctx.conn,
         http_client=None,
@@ -210,14 +254,28 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         on_progress=_on_progress,
         video_parser=ctx.video_parser,
         cookie_repository=ctx.cookie_repo,
+        bili_reparser=_reparse_bili_urls,
     )
 
     # 6. 启动调度器
     await ctx.scheduler.start()
     await ctx.scheduler.restore_pending_tasks()
 
+    # 6.5. 孤儿 .part 清理（审计 S3）：进程崩溃/任务删除残留的临时文件
+    with contextlib.suppress(Exception):
+        from downloader.cleanup import sweep_orphan_part_files
+
+        cfg_dir = ctx.config_repo.get("download_dir") if ctx.config_repo else None
+        if cfg_dir:
+            removed = sweep_orphan_part_files(cfg_dir)
+            if removed:
+                log.info("启动清理孤儿 .part 文件 %d 个", removed)
     # 7. 启动共享 WebSocket 进度轮询任务
     await ws_router._start_shared_push()
+
+    # 7.5. 启动订阅扫描器（v0.4.1）
+    if ctx.subscription_scanner is not None:
+        await ctx.subscription_scanner.start()
     log.info("调度器已启动，断点续传已恢复")
 
     yield  # FastAPI 开始处理请求
@@ -225,6 +283,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # 关闭阶段
     log.info("=== 关闭清理 ===")
     await ws_router._stop_shared_push()
+    # 停止订阅扫描器（v0.4.1）
+    if ctx.subscription_scanner is not None:
+        await ctx.subscription_scanner.stop()
     await ctx.scheduler.stop()
     # 释放 B 站 HTTP 客户端连接池（v0.4.0）
     if ctx.bili_http_client is not None:
@@ -240,7 +301,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 # ===== FastAPI 应用 =====
 app = FastAPI(
     title="VideoGetTool Python Sidecar",
-    version="0.4.0",
+    version="0.4.1",
     lifespan=lifespan,
 )
 
@@ -254,6 +315,10 @@ ALLOWED_ORIGINS: list[str] = [
     "https://tauri.localhost",
     "http://localhost:1420",  # Vite 开发服务器
 ]
+# Host 守卫必须先于 CORS 注册：先拒绝非法 Host（DNS rebinding），再谈同源读。
+# 注意：BaseHTTPMiddleware 不处理 WebSocket scope，WS 端点内自行调用
+# backend.security.is_host_allowed 校验（见 backend/api/ws.py）。
+app.add_middleware(HostGuardMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
@@ -274,6 +339,10 @@ app.include_router(covers_router.router, prefix="/api", tags=["covers"])
 from backend.api import bilibili as bilibili_router
 
 app.include_router(bilibili_router.router, prefix="/api/bilibili", tags=["bilibili"])
+# v0.4.1：订阅模式路由
+from backend.api import subscription as subscription_router
+
+app.include_router(subscription_router.router, prefix="/api/subscription", tags=["subscription"])
 
 
 if __name__ == "__main__":

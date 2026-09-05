@@ -68,6 +68,20 @@ export function useNotificationService() {
 
   const onMessage = useCallback(
     async (msg: WsMessage) => {
+      // v0.4.1 订阅模式：后台扫描发现新作品
+      if (msg.type === "subscription_update") {
+        const subId = msg.subscription_id ?? 0;
+        const newCount = msg.new_count ?? 0;
+        // 派发窗口事件，订阅面板监听后刷新
+        window.dispatchEvent(
+          new CustomEvent("vgt:subscription-update", {
+            detail: { subscription_id: subId, new_count: newCount },
+          }),
+        );
+        addToast(`订阅 #${subId} 发现 ${newCount} 个新作品`, "success");
+        return;
+      }
+
       // 只处理 Task 级事件，忽略逐项进度更新和单项通知
       if (msg.type !== "task_completed" && msg.type !== "task_failed") return;
 

@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -17,6 +18,71 @@ from backend.state import ctx
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+# === 内部辅助 ===
+
+
+def _resolve_dir(path: str) -> str:
+    """规范化目录：展开用户目录、取绝对路径、统一大小写（Windows）。"""
+    return os.path.normcase(os.path.abspath(os.path.expanduser(path.strip())))
+
+
+def _validate_download_dir(raw: str | None, configured: str) -> str:
+    """下载目录准入：仅接受『与配置目录一致』的路径（审计 P0-3/N2）。
+
+    产品语义：下载目录只能经“设置页 → config API”变更；入队接口收到的
+    download_dir 必须与配置一致，否则拒绝。这同时封堵 config API 之外
+    的任意路径写（DNS rebinding 的第二个写入点）。
+
+    参数:
+        raw: 请求传入的 download_dir（可空）
+        configured: 配置中的 download_dir
+
+    返回:
+        校验通过的下载目录（非空字符串）
+
+    异常:
+        HTTPException(400): 目录为空或与配置不一致
+    """
+    candidate = (raw or configured or "").strip()
+    if not candidate:
+        # 配置缺失时回退内置默认目录（生产环境 init_db 总会写入默认值）
+        from app.config import DEFAULT_CONFIGS
+
+        candidate = DEFAULT_CONFIGS.get("download_dir", "").strip()
+    if not candidate:
+        raise HTTPException(status_code=400, detail="下载目录为空")
+    if configured.strip() and _resolve_dir(candidate) != _resolve_dir(configured):
+        raise HTTPException(
+            status_code=400,
+            detail="download_dir 与配置目录不一致，请在设置中修改下载目录",
+        )
+    return candidate
+
+
+_ALLOWED_DOWNLOAD_SCHEMES: frozenset[str] = frozenset({"http", "https"})
+
+
+def _validate_download_url(url: str) -> str:
+    """下载直链校验：仅 http/https、必须有 host（审计 P0-3）。
+
+    参数:
+        url: 待校验的直链 URL（可空字符串）
+
+    返回:
+        规范化后的 URL（空串原样返回）
+
+    异常:
+        HTTPException(400): 协议非 http/https 或缺少 host
+    """
+    url = (url or "").strip()
+    if not url:
+        return ""
+    parts = urlsplit(url)
+    if parts.scheme not in _ALLOWED_DOWNLOAD_SCHEMES or not parts.hostname:
+        raise HTTPException(status_code=400, detail=f"非法下载地址: {url[:80]}")
+    return url
 
 
 # === 请求/响应模型 ===
@@ -62,6 +128,150 @@ class TaskItemResponse(BaseModel):
     cover_url: str | None = None
     fail_reason: str | None
     local_path: str | None
+
+
+# === 内部辅助 ===
+
+
+async def enqueue_download_items(
+    source_type: str,
+    source_url: str | None,
+    items: list[dict],
+    download_dir: str | None = None,
+) -> int:
+    """创建下载任务并入队调度（供 start_download 与订阅模式共用）。
+
+    流程：
+        1. 创建 Task（source_type / source_url / download_dir）
+        2. 逐项解析真实媒体地址（前端未提供时用 aweme_id 二次解析 detail 接口）
+        3. 创建 TaskItems 并更新任务进度
+        4. 交给 Scheduler 入队
+
+    Args:
+        source_type: 任务来源类型（single/batch/user_home/subscription 等）
+        source_url: 来源链接（可空）
+        items: 待下载 item dict 列表
+        download_dir: 下载目录，None 时使用配置默认值
+
+    Returns:
+        新建任务 id
+
+    Raises:
+        HTTPException(503): 基础设施未就绪
+    """
+    if (
+        ctx.task_repo is None
+        or ctx.task_item_repo is None
+        or ctx.scheduler is None
+        or ctx.config_repo is None
+    ):
+        raise HTTPException(status_code=503, detail="Service not ready")
+
+    # 审计 P0-3：download_dir 必须与配置目录一致（封堵任意路径写）
+    download_dir = _validate_download_dir(download_dir, ctx.config_repo.get("download_dir") or "")
+
+    # 创建任务
+    task = Task(
+        id=None,
+        source_type=source_type,
+        source_url=source_url,
+        status=TaskStatus.PENDING.value,
+        download_dir=download_dir,
+    )
+    task_id = ctx.task_repo.create(task)
+
+    # 有 items 时创建 task_items 并入队
+    if items:
+        task_items = []
+        # 获取有效 Cookie（供二次解析真实媒体地址）
+        cookie = ""
+        if ctx.cookie_repo is not None:
+            valid_cookie = ctx.cookie_repo.get_valid()
+            if valid_cookie is not None:
+                cookie = valid_cookie.content
+                ctx.cookie_repo.update_last_used(valid_cookie.id, now_iso())
+
+        for item_data in items:
+            item_type = item_data.get("type", "video")
+            aweme_id = item_data.get("aweme_id")
+            media_url = item_data.get("no_watermark_url") or ""
+            image_urls = item_data.get("image_urls") or []
+            item_video_urls = item_data.get("item_video_urls") or []
+            item_types = item_data.get("item_types") or []
+
+            # 前端未提供真实媒体地址时，用 aweme_id 二次解析 detail 接口获取
+            if not (media_url or image_urls) and aweme_id and ctx.video_parser is not None:
+                try:
+                    video_info = await ctx.video_parser.parse_video(aweme_id, cookie)
+                    if item_type == "image_set" and video_info.image_urls:
+                        image_urls = video_info.image_urls
+                        item_video_urls = video_info.item_video_urls
+                        item_types = video_info.item_types
+                    elif video_info.no_watermark_url:
+                        media_url = video_info.no_watermark_url
+                except Exception:
+                    # 解析失败时回退到原始 URL，交由下载器/用户界面反馈
+                    pass
+
+            # 图集：优先使用逐项视频直链（有视频的项下载视频，其余退枝到图片）
+            if item_type == "image_set":
+                # 仅在有视频直链的项上使用视频 URL，其余保留图片 URL
+                if item_video_urls and len(item_video_urls) == len(image_urls):
+                    download_urls = [
+                        v if v else i for v, i in zip(item_video_urls, image_urls, strict=True)
+                    ]
+                else:
+                    download_urls = image_urls
+                download_url = "\n".join(download_urls) if download_urls else ""
+            elif media_url:
+                download_url = media_url
+            else:
+                download_url = item_data.get("url", "")
+
+            # 审计 P0-3：所有落库直链一律校验（仅 http/https）
+            if download_url:
+                download_url = "\n".join(
+                    _validate_download_url(u) for u in download_url.split("\n") if u
+                )
+
+            task_item = TaskItem(
+                id=None,
+                task_id=task_id,
+                aweme_id=aweme_id,
+                url=download_url,
+                title=item_data.get("title"),
+                author=item_data.get("author"),
+                type=item_type,
+                cover_url=item_data.get("cover_url"),
+                image_count=(
+                    len(image_urls)
+                    if item_type == "image_set" and image_urls
+                    else item_data.get("image_count")
+                ),
+                item_types=(
+                    json.dumps(item_types, ensure_ascii=False)
+                    if item_type == "image_set" and item_types
+                    else ""
+                ),
+                status=TaskItemStatus.PENDING.value,
+                # v0.4.0：B 站 DASH 字段透传
+                bvid=item_data.get("bvid"),
+                cid=item_data.get("cid"),
+                page=item_data.get("page") or 0,
+                audio_url=_validate_download_url(item_data.get("audio_url")),
+                dash_merged="",
+            )
+            item_id = ctx.task_item_repo.create(task_item)
+            task_item.id = item_id
+            task_items.append(task_item)
+
+        # 更新任务总数
+        ctx.task_repo.update_progress(task_id, 0, len(task_items))
+
+        # 入队调度
+        ctx.scheduler.add_task_items(task_items)
+
+    return task_id
 
 
 # === API 端点 ===
@@ -124,114 +334,42 @@ async def list_task_items(task_id: int):
     ]
 
 
+def _remove_item_outputs(item: TaskItem, task_repo) -> None:
+    """删除任务项对应的本地产物（审计 S3）。
+
+    仅当任务项已生成本地文件（local_path 非空）时尝试清理；目录包含性
+    校验基座取任务自身的 download_dir（同一任务内安全），越界/失败仅记
+    日志不抛错，避免单个产物删除失败阻断整个删除请求。
+
+    参数:
+        item: 待删除的任务项。
+        task_repo: Task 仓库（用于取任务 download_dir）。
+    """
+    if not item.local_path:
+        return
+    try:
+        from downloader.cleanup import safe_remove_output
+
+        base_dir = ""
+        task = task_repo.get(item.task_id) if task_repo else None
+        base_dir = (task.download_dir if task else "") or ""
+        if not base_dir:
+            logger.warning("任务项 %s 无 download_dir，跳过产物清理", item.id)
+            return
+        safe_remove_output(item.local_path, base_dir)
+    except Exception:  # 清理失败绝不阻断数据库删除
+        logger.exception("任务项 %s 产物清理异常（忽略）", item.id)
+
+
 @router.post("/start")
 async def start_download(req: StartDownloadRequest):
     """启动下载任务。"""
-    if (
-        ctx.task_repo is None
-        or ctx.task_item_repo is None
-        or ctx.scheduler is None
-        or ctx.config_repo is None
-    ):
-        raise HTTPException(status_code=503, detail="Service not ready")
-
-    download_dir = req.download_dir or ctx.config_repo.get("download_dir") or ""
-
-    # 创建任务
-    task = Task(
-        id=None,
+    task_id = await enqueue_download_items(
         source_type=req.source_type,
         source_url=req.source_url,
-        status=TaskStatus.PENDING.value,
-        download_dir=download_dir,
+        items=req.items or [],
+        download_dir=req.download_dir,
     )
-    task_id = ctx.task_repo.create(task)
-
-    # 如果有传入 items，直接创建 task_items 并入队
-    if req.items:
-        items = []
-        # 获取有效 Cookie（供二次解析真实媒体地址）
-        cookie = ""
-        if ctx.cookie_repo is not None:
-            valid_cookie = ctx.cookie_repo.get_valid()
-            if valid_cookie is not None:
-                cookie = valid_cookie.content
-                ctx.cookie_repo.update_last_used(valid_cookie.id, now_iso())
-
-        for item_data in req.items:
-            item_type = item_data.get("type", "video")
-            aweme_id = item_data.get("aweme_id")
-            media_url = item_data.get("no_watermark_url") or ""
-            image_urls = item_data.get("image_urls") or []
-            item_video_urls = item_data.get("item_video_urls") or []
-            item_types = item_data.get("item_types") or []
-
-            # 前端未提供真实媒体地址时，用 aweme_id 二次解析 detail 接口获取
-            if not (media_url or image_urls) and aweme_id and ctx.video_parser is not None:
-                try:
-                    video_info = await ctx.video_parser.parse_video(aweme_id, cookie)
-                    if item_type == "image_set" and video_info.image_urls:
-                        image_urls = video_info.image_urls
-                        item_video_urls = video_info.item_video_urls
-                        item_types = video_info.item_types
-                    elif video_info.no_watermark_url:
-                        media_url = video_info.no_watermark_url
-                except Exception:
-                    # 解析失败时回退到原始 URL，交由下载器/用户界面反馈
-                    pass
-
-            # 图集：优先使用逐项视频直链（有视频的项下载视频，其余退枝到图片）
-            if item_type == "image_set":
-                # 仅在有视频直链的项上使用视频 URL，其余保留图片 URL
-                if item_video_urls and len(item_video_urls) == len(image_urls):
-                    download_urls = [
-                        v if v else i for v, i in zip(item_video_urls, image_urls, strict=True)
-                    ]
-                else:
-                    download_urls = image_urls
-                download_url = "\n".join(download_urls) if download_urls else ""
-            elif media_url:
-                download_url = media_url
-            else:
-                download_url = item_data.get("url", "")
-
-            task_item = TaskItem(
-                id=None,
-                task_id=task_id,
-                aweme_id=aweme_id,
-                url=download_url,
-                title=item_data.get("title"),
-                author=item_data.get("author"),
-                type=item_type,
-                cover_url=item_data.get("cover_url"),
-                image_count=(
-                    len(image_urls)
-                    if item_type == "image_set" and image_urls
-                    else item_data.get("image_count")
-                ),
-                item_types=(
-                    json.dumps(item_types, ensure_ascii=False)
-                    if item_type == "image_set" and item_types
-                    else ""
-                ),
-                status=TaskItemStatus.PENDING.value,
-                # v0.4.0：B 站 DASH 字段透传
-                bvid=item_data.get("bvid"),
-                cid=item_data.get("cid"),
-                page=item_data.get("page") or 0,
-                audio_url=item_data.get("audio_url") or "",
-                dash_merged="",
-            )
-            item_id = ctx.task_item_repo.create(task_item)
-            task_item.id = item_id
-            items.append(task_item)
-
-        # 更新任务总数
-        ctx.task_repo.update_progress(task_id, 0, len(items))
-
-        # 入队调度
-        ctx.scheduler.add_task_items(items)
-
     return {"task_id": task_id, "message": "下载任务已创建"}
 
 
@@ -316,6 +454,9 @@ async def delete_task_item(item_id: int):
     """删除单个下载任务项。
 
     若该项所属 Task 下已无剩余 TaskItem，则一并清理该 Task。
+    审计 S3：删除数据库行的同时清理该项的本地产物（成品文件/.part），
+    目录包含性校验见 ``downloader.cleanup.safe_remove_output``；
+    产物路径越界或删除失败仅记录日志，不影响数据库删除。
     """
     if ctx.task_item_repo is None or ctx.task_repo is None:
         raise HTTPException(status_code=503, detail="Service not ready")
@@ -325,6 +466,9 @@ async def delete_task_item(item_id: int):
         raise HTTPException(status_code=404, detail=f"任务项 {item_id} 不存在")
 
     task_id = item.task_id
+
+    # 审计 S3：先清理本地产物（含 .part），再删数据库行
+    _remove_item_outputs(item, ctx.task_repo)
 
     # 删除该 TaskItem
     ctx.task_item_repo.delete(item_id)
@@ -339,9 +483,22 @@ async def delete_task_item(item_id: int):
 
 @router.delete("/tasks/{task_id}")
 async def delete_task(task_id: int):
-    """删除任务及其所有项。"""
-    if ctx.task_repo is None:
+    """删除任务及其所有项。
+
+    审计 S3：删除数据库行的同时清理任务全部项的本地产物（成品/.part），
+    目录包含性校验见 ``downloader.cleanup.safe_remove_output``。
+    """
+    if ctx.task_repo is None or ctx.task_item_repo is None:
         raise HTTPException(status_code=503, detail="Service not ready")
+
+    task = ctx.task_repo.get(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail=f"任务 {task_id} 不存在")
+
+    # 审计 S3：先清理全部子项的本地产物，再删数据库行
+    for item in ctx.task_item_repo.get_by_task(task_id):
+        _remove_item_outputs(item, ctx.task_repo)
+    # TaskRepository.delete 依赖外键 ON DELETE CASCADE 级联删除 task_items/metadata
     ctx.task_repo.delete(task_id)
     return {"message": f"任务 {task_id} 已删除"}
 

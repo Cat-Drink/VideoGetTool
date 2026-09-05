@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from app.logger import get_logger
-from crawlers.bilibili.bili_http_client import BiliHttpClient
+from crawlers.bilibili.bili_http_client import BiliAPIError, BiliHttpClient
 from crawlers.bilibili.bili_signer import BiliSigner
 from crawlers.bilibili.constants import DEFAULT_QUALITY, PLAYURL_URL, VIEW_URL
 from crawlers.exceptions import VideoNotFoundError
@@ -313,7 +313,26 @@ class BiliVideoParser:
             "fourk": 1,  # 允许 4K
         }
 
-        data = await self._http_client.get_json(PLAYURL_URL, params, signed=True, cookie=cookie)
+        try:
+            data = await self._http_client.get_json(PLAYURL_URL, params, signed=True, cookie=cookie)
+        except BiliAPIError as exc:
+            # S4：会员清晰度（qn>80，即 >1080P）无大会员 Cookie 时 B 站返回
+            # -403/-400，此时降级到 qn=80（1080P）重试一次，避免下载全部失败。
+            if quality > 80 and exc.code in (-403, -400):
+                logger.warning(
+                    "qn=%d 请求被拒（code=%s），降级到 qn=80 重试 bvid=%s cid=%d",
+                    quality,
+                    exc.code,
+                    bvid,
+                    cid,
+                )
+                params["qn"] = 80
+                data = await self._http_client.get_json(
+                    PLAYURL_URL, params, signed=True, cookie=cookie
+                )
+                quality = 80
+            else:
+                raise
 
         if not data:
             raise VideoNotFoundError(f"B 站播放流获取失败: bvid={bvid}, cid={cid}")

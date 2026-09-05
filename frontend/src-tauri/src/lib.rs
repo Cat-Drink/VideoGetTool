@@ -28,7 +28,7 @@ fn open_link(url: String) -> Result<(), String> {
 /// 获取应用版本号
 #[tauri::command]
 fn get_app_version() -> String {
-    "0.4.0".to_string()
+    "0.4.1".to_string()
 }
 
 /// 播放本地 .wav 文件（Windows 原生 PlaySoundW，异步非阻塞播放）
@@ -105,12 +105,10 @@ pub fn run() {
         .plugin(tauri_plugin_websocket::init())
         .plugin(
             tauri_plugin_window_state::Builder::new()
+                // 审计 M4/P2-2：不恢复 VISIBLE|FULLSCREEN，避免窗口
+                // 以全屏/可见态意外恢复（钓鱼放大面）
                 .with_state_flags(
-                    StateFlags::SIZE
-                        | StateFlags::POSITION
-                        | StateFlags::MAXIMIZED
-                        | StateFlags::VISIBLE
-                        | StateFlags::FULLSCREEN,
+                    StateFlags::SIZE | StateFlags::POSITION | StateFlags::MAXIMIZED,
                 )
                 .build(),
         )

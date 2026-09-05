@@ -10,6 +10,7 @@ import asyncio
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from app.crypto import decrypt_secret, encrypt_secret
 from backend.state import ctx
 from crawlers.bilibili.bili_http_client import BiliAPIError
 
@@ -223,7 +224,8 @@ async def bili_playurl(req: BiliPlayUrlRequest):
 
     cookie = req.cookie or None
     if not cookie and req.use_saved_cookie and ctx.config_repo is not None:
-        cookie = ctx.config_repo.get("bilibili_cookie") or None
+        # 审计 H3：已保存的 Cookie 为 DPAPI 密文，读取后解密再使用
+        cookie = decrypt_secret(ctx.config_repo.get("bilibili_cookie") or "") or None
 
     try:
         playurl = await ctx.bili_video_parser.parse_playurl(
@@ -287,7 +289,8 @@ async def bili_fetch_space(req: BiliSpaceRequest):
                 raise HTTPException(status_code=400, detail="无法从 URL 解析用户 ID")
 
         # 复用已保存的 B 站 Cookie（与 /playurl 一致），支持受限用户主页抓取
-        cookie = ctx.config_repo.get("bilibili_cookie") or None
+        # 审计 H3：存储为 DPAPI 密文，读取后解密再使用
+        cookie = decrypt_secret(ctx.config_repo.get("bilibili_cookie") or "") or None
         posts, has_more, total = await ctx.bili_user_crawler.fetch_user_posts_with_meta(
             mid, max_count=req.max_count, cookie=cookie
         )
@@ -378,7 +381,8 @@ async def bili_get_cookie():
     """获取已保存的 B 站 Cookie 信息（不返回完整 Cookie）。"""
     if ctx.config_repo is None:
         raise HTTPException(status_code=503, detail="服务未初始化")
-    saved = ctx.config_repo.get("bilibili_cookie") or ""
+    # 审计 H3：存储为 DPAPI 密文；读取解密后取前缀展示（不返回完整 Cookie）
+    saved = decrypt_secret(ctx.config_repo.get("bilibili_cookie") or "") or ""
     has = bool(saved)
     valid_str = ctx.config_repo.get("bilibili_cookie_valid") or ""
     last_valid = True if valid_str == "1" else False if valid_str == "0" else None
@@ -405,7 +409,8 @@ async def bili_set_cookie(req: BiliCookieSetRequest):
     if ctx.config_repo is None:
         raise HTTPException(status_code=503, detail="服务未初始化")
 
-    ctx.config_repo.set("bilibili_cookie", req.cookie.strip())
+    # 审计 H3：DPAPI 加密后再落库
+    ctx.config_repo.set("bilibili_cookie", encrypt_secret(req.cookie.strip()))
     ctx.config_repo.set("bilibili_cookie_valid", "")
     ctx.config_repo.set("bilibili_cookie_nickname", "")
 

@@ -27,7 +27,7 @@ import re
 import shutil
 import sqlite3
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -39,6 +39,7 @@ from app.logger import get_logger
 from app.models import TaskItem, now_iso
 from app.repositories import TaskItemRepository, TaskRepository
 from downloader.constants import (
+    ALLOWED_MEDIA_EXTENSIONS,
     LARGE_FILE_THRESHOLD,
     MAX_FILENAME_BASE_LENGTH,
     MAX_SEGMENTS,
@@ -74,6 +75,26 @@ RATE_LIMITED_STATUS_CODES: frozenset[int] = frozenset({461, 412})
 
 # v0.1.3：分片下载常量（SEGMENT_SIZE / MAX_SEGMENTS / LARGE_FILE_THRESHOLD）
 # 已移至 downloader/constants.py 集中定义，本模块通过 import 复用
+
+# === HLS/m3u8 播放列表检测（审计 M13/C1） ===
+# 本下载器是纯字节流下载器，不支持 HLS 分段。若平台返回 m3u8 播放列表文本
+# （Content-Type 或内容魔数），必须**中止并报错**，而不是把文本当媒体保存。
+# 播放列表通常很小（< 64KB），首个分块内即可命中魔数。
+_PLAYLIST_CONTENT_TYPE_HINTS: tuple[str, ...] = (
+    "mpegurl",  # application/vnd.apple.mpegurl / application/x-mpegurl
+    "hls",
+)
+# 播放列表文本魔数（首个分块内检测）：EXTM3U 头或 EXT-X- 标签
+_PLAYLIST_SNIFF_MARKERS: tuple[bytes, ...] = (b"#EXTM3U", b"#EXT-X-")
+# 内容嗅探读取的最大字节数
+_PLAYLIST_SNIFF_BYTES: int = 1024
+
+
+class PlaylistContentError(RuntimeError):
+    """下载内容为 HLS/m3u8 播放列表文本而非媒体文件。
+
+    属于不可重试错误：重试只会再次拿到同一份播放列表。
+    """
 
 
 @dataclass(frozen=True)
@@ -135,6 +156,7 @@ class Downloader:
         video_parser: VideoParser | None = None,
         cookie_repository: CookieRepository | None = None,
         ffmpeg_path: str | None = None,
+        bili_reparser: Callable[..., Awaitable[tuple[str, str] | None]] | None = None,
     ) -> None:
         """初始化下载器。
 
@@ -159,6 +181,10 @@ class Downloader:
         self._video_parser = video_parser
         self._cookie_repository = cookie_repository
         self._ffmpeg_path = ffmpeg_path
+        # v0.4.2/审计 M10：B 站 DASH 直链过期（403/404）时的重解析器；
+        # 签名 Callable[[TaskItem], Awaitable[tuple[str,str]|None]]，
+        # 返回新的 (video_url, audio_url)；None 表示不可用（不触发重解析）。
+        self._bili_reparser = bili_reparser
         # 按目标文件路径的并发锁：防止同名目标（同一视频/图集被多次下载）
         # 并发写同一个 .part 文件导致合并阶段文件占用冲突（WinError 32）
         self._file_locks: dict[str, asyncio.Lock] = {}
@@ -267,9 +293,11 @@ class Downloader:
         """
         parsed = urlparse(url)
         suffix = Path(parsed.path).suffix.lower()
-        if suffix and len(suffix) <= 5:
+        if suffix in ALLOWED_MEDIA_EXTENSIONS:
             return suffix
-        # 默认扩展名
+        # 白名单外（含 .bat/.exe/.url/.m3u8/.mpd 等）一律拒绝，走类型默认值
+        # 审计 P0-3/M7：避免“URL 后缀直用”形成任意文件写原语；
+        # 内容层由 m3u8 魔数检测兜底（见 _download_single_file）
         if item_type == "image_set" and item_subtype != "video":
             return ".jpg"
         return ".mp4"
@@ -653,10 +681,7 @@ class Downloader:
             lock_key = str(target_dir)
             lock = self._file_locks.setdefault(lock_key, asyncio.Lock())
             async with lock:
-                try:
-                    return await self._download_image_set(task_item, urls, target_dir)
-                finally:
-                    self._file_locks.pop(lock_key, None)
+                return await self._download_image_set(task_item, urls, target_dir)
 
         # v0.4.0：B 站 DASH 格式（音视频分离）→ 走 DASH 合并流程
         if task_item.audio_url:
@@ -668,10 +693,7 @@ class Downloader:
             lock_key = str(final_path)
             lock = self._file_locks.setdefault(lock_key, asyncio.Lock())
             async with lock:
-                try:
-                    return await self._download_dash(task_item, final_path)
-                finally:
-                    self._file_locks.pop(lock_key, None)
+                return await self._download_dash(task_item, final_path)
 
         final_path = self._get_final_path(task_item, task_item.url)
         final_path.parent.mkdir(parents=True, exist_ok=True)
@@ -679,10 +701,7 @@ class Downloader:
         lock_key = str(final_path)
         lock = self._file_locks.setdefault(lock_key, asyncio.Lock())
         async with lock:
-            try:
-                return await self._download_single_file(task_item, task_item.url, final_path)
-            finally:
-                self._file_locks.pop(lock_key, None)
+            return await self._download_single_file(task_item, task_item.url, final_path)
 
     # === DASH 音视频合并（v0.4.0 B 站支持） ===
 
@@ -746,17 +765,78 @@ class Downloader:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        stdout, stderr = await proc.communicate()
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=600)
         if proc.returncode != 0:
             raise RuntimeError(
                 f"ffmpeg 合并失败（退出码 {proc.returncode}）: "
                 f"{stderr.decode(errors='replace')[:500]}"
             )
 
+    @staticmethod
+    def _is_link_expired(reason: str | None) -> bool:
+        """判断下载失败原因是否属于直链过期（HTTP 403/404）。
+
+        参数:
+            reason: 失败原因文本（如 "HTTP 403"）。
+
+        返回:
+            命中 403/404 返回 True。
+        """
+        if not reason:
+            return False
+        return "HTTP 403" in reason or "HTTP 404" in reason
+
+    def _should_reparse_dash(self, task_item: TaskItem, _reparsed: bool) -> bool:
+        """是否应触发 B 站 DASH 直链重解析。
+
+        条件：未重解析过、注入过 bili_reparser、任务项带 bvid/cid、
+        B 站平台任务（url 为空表示无 URL 可再试，直接不触发）。
+        """
+        if _reparsed or self._bili_reparser is None:
+            return False
+        if not task_item.bvid or not task_item.cid:
+            return False
+        return bool(task_item.url and task_item.audio_url)
+
+    async def _reparse_and_retry_dash(
+        self,
+        task_item: TaskItem,
+        final_path: Path,
+    ) -> DownloadResult:
+        """调用注入的 bili_reparser 换取新 URL，回填并递归重试一次。
+
+        失败（返回 None/异常）时维持原失败路径：由调用方按普通失败处理。
+
+        返回:
+            重解析后的下载结果（含最终失败）。
+        """
+        try:
+            new_urls = await self._bili_reparser(task_item)
+        except Exception as exc:  # 重解析异常不阻断下载主流程
+            logger.warning("B 站 DASH 重解析异常 task_item id=%s error=%s", task_item.id, exc)
+            new_urls = None
+        if not new_urls:
+            logger.info("B 站 DASH 重解析无结果，维持原失败 task_item id=%s", task_item.id)
+            video_result = DownloadResult(success=False, error="HTTP 403 且重解析无可用新直链")
+            self._mark_status(task_item.id, "failed", fail_reason=video_result.error)
+            return video_result
+
+        video_url, audio_url = new_urls
+        task_item.url = video_url
+        task_item.audio_url = audio_url
+        # 回填 DB，供断点续传/订阅重试使用新 URL
+        self._item_repo.update_dash_urls(task_item.id, video_url, audio_url)
+        logger.info(
+            "B 站 DASH 直链已过期，重解析获取新直链后重试 task_item id=%s",
+            task_item.id,
+        )
+        return await self._download_dash(task_item, final_path, _reparsed=True)
+
     async def _download_dash(
         self,
         task_item: TaskItem,
         final_path: Path,
+        _reparsed: bool = False,
     ) -> DownloadResult:
         """下载 B 站 DASH 音视频流并用 ffmpeg 合并。
 
@@ -766,12 +846,13 @@ class Downloader:
             2. ffmpeg -c copy 合并为最终 MP4
             3. 清理临时文件，标记任务项完成
 
+        审计 M10：视频/音频流直链过期（403/404）且注入 bili_reparser 时，
+        自动重解析换取新 URL 重试一次（_reparsed 防无限递归）。
+
         Args:
             task_item: 任务项（url=视频流, audio_url=音频流）
             final_path: 最终合并文件路径
-
-        Returns:
-            下载结果
+            _reparsed: 内部递归标记，避免重解析后再失败再次重解析。
         """
         video_part = Path(str(final_path) + ".video")
         audio_part = Path(str(final_path) + ".audio")
@@ -810,11 +891,18 @@ class Downloader:
                 if isinstance(audio_result, asyncio.CancelledError):
                     raise
                 raise RuntimeError(f"音频流下载失败: {audio_result}")
+
+            # 审计 M10：视频流过期（403/404）→ 尝试重解析换新 URL 再下载一次
+            if not video_result.success and self._should_reparse_dash(task_item, _reparsed):
+                return await self._reparse_and_retry_dash(task_item, final_path)
             if not video_result.success:
                 self._mark_status(
                     task_item.id, "failed", fail_reason=video_result.error or "视频流下载失败"
                 )
                 return video_result
+            # 审计 M10：音频流过期同理
+            if not audio_result.success and self._should_reparse_dash(task_item, _reparsed):
+                return await self._reparse_and_retry_dash(task_item, final_path)
             if not audio_result.success:
                 self._mark_status(
                     task_item.id, "failed", fail_reason=audio_result.error or "音频流下载失败"
@@ -917,9 +1005,18 @@ class Downloader:
                 total_bytes = 0
                 try:
                     async with self._http_client.stream("GET", url, headers=headers) as response:
+                        # 审计 M13/C1：Content-Type 直接命中 HLS 播放列表 → 立即失败，
+                        # 不把播放列表文本当媒体保存（不重试）。
+                        resp_content_type = response.headers.get("Content-Type", "").lower()
+                        if any(hint in resp_content_type for hint in _PLAYLIST_CONTENT_TYPE_HINTS):
+                            part_path.unlink(missing_ok=True)
+                            reason = "下载内容为 m3u8/HLS 播放列表（Content-Type）而非媒体文件"
+                            if mark_status:
+                                self._mark_status(task_item.id, "failed", fail_reason=reason)
+                            logger.warning("下载中止（HLS 播放列表）: %s", reason)
+                            return DownloadResult(success=False, error=reason)
                         # ISSUE-20 诊断：记录响应 Content-Type，识别 CDN 返回
                         # WebP 缩略图占位（本应返回 video_mp4 却给了 image/webp）
-                        resp_content_type = response.headers.get("Content-Type", "").lower()
                         if "webp" in resp_content_type or "image" in resp_content_type:
                             logger.warning(
                                 "下载响应为图片而非视频: url=%s content_type=%s status=%d",
@@ -990,6 +1087,14 @@ class Downloader:
                     )
                     raise
 
+                except PlaylistContentError as e:
+                    # 审计 M13/C1：内容为 HLS 播放列表 → 立即失败（不重试）
+                    part_path.unlink(missing_ok=True)
+                    if mark_status:
+                        self._mark_status(task_item.id, "failed", fail_reason=str(e))
+                    logger.warning("下载中止（HLS 播放列表）: task_item id=%s %s", task_item.id, e)
+                    return DownloadResult(success=False, error=str(e))
+
                 except httpx.HTTPError as e:
                     # 网络异常 → 重试
                     retry_count += 1
@@ -1007,6 +1112,22 @@ class Downloader:
                     )
                     await self._retry_with_backoff(retry_count)
                     continue
+
+    @staticmethod
+    def _is_playlist_content(first_chunk: bytes) -> bool:
+        """检测首个数据块是否含 HLS 播放列表魔数（审计 M13/C1）。
+
+        纯文本播放列表以 ``#EXTM3U`` 开头或含 ``#EXT-X-`` 标签，
+        与任何真实媒体容器头（mp4/fMP4/webp/jpg/png）不冲突。
+
+        参数:
+            first_chunk: 响应的首个数据块。
+
+        返回:
+            命中播放列表魔数返回 True。
+        """
+        head = first_chunk[:_PLAYLIST_SNIFF_BYTES]
+        return any(marker in head for marker in _PLAYLIST_SNIFF_MARKERS)
 
     async def _stream_to_file(
         self,
@@ -1046,7 +1167,15 @@ class Downloader:
         part_path.parent.mkdir(parents=True, exist_ok=True)
         try:
             with open(part_path, mode) as f:
+                first_chunk: bytes | None = None
                 async for chunk in response.aiter_bytes(CHUNK_SIZE):
+                    # 审计 M13/C1：首块内容嗅探 HLS 播放列表魔数
+                    # （仅从头下载时嗅探，避免误伤续传中途字节）
+                    if first_chunk is None and downloaded_bytes == 0:
+                        first_chunk = chunk
+                        if self._is_playlist_content(first_chunk):
+                            # 删除由 _stream_to_file 外层 except 完成（句柄先关闭）
+                            raise PlaylistContentError("下载内容为 m3u8/HLS 播放列表而非媒体文件")
                     f.write(chunk)
                     downloaded_bytes += len(chunk)
                     # 更新进度（节流器内部去重）
@@ -1069,6 +1198,10 @@ class Downloader:
         except asyncio.CancelledError:
             # 持久化进度后重抛（设计文档 5.4 节）
             self._persist_progress(task_item.id, downloaded_bytes, total_bytes)
+            raise
+        except PlaylistContentError:
+            # 审计 M13/C1：内容为播放列表 → 清理刚创建的 .part（此时文件句柄已关闭）
+            part_path.unlink(missing_ok=True)
             raise
 
         # 最终持久化一次

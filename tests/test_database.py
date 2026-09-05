@@ -34,7 +34,7 @@ class TestInitDb:
     """init_db 测试。"""
 
     def test_init_db_creates_all_tables(self, memory_db: sqlite3.Connection) -> None:
-        """初始化后应存在 6 张表（排除 sqlite_sequence 系统表）。"""
+        """初始化后应存在 8 张表（排除 sqlite_sequence 系统表）。"""
         tables = _get_table_names(memory_db)
         expected = {
             "tasks",
@@ -43,13 +43,15 @@ class TestInitDb:
             "cookies",
             "config",
             "schema_version",
+            "subscriptions",
+            "subscription_items",
         }
         # sqlite_sequence 是 AUTOINCREMENT 自动创建的系统表，不算业务表
         tables.discard("sqlite_sequence")
         assert tables == expected
 
     def test_init_db_creates_all_indexes(self, memory_db: sqlite3.Connection) -> None:
-        """初始化后应存在 6 个索引。"""
+        """初始化后应存在 9 个索引。"""
         indexes = _get_index_names(memory_db)
         expected = {
             "idx_tasks_status",
@@ -58,6 +60,9 @@ class TestInitDb:
             "idx_task_items_aweme_id",
             "idx_cookies_status",
             "idx_metadata_task_item_id",
+            "idx_subscriptions_enabled",
+            "idx_subscription_items_sub_id",
+            "idx_subscription_items_status",
         }
         assert indexes == expected
 

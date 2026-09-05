@@ -33,3 +33,36 @@ MAX_SEGMENTS: int = 8
 # 本地文件基础名最大长度（字符）
 # 问题归档 #4：采用"作者名 + 源媒体标题"截取前若干字作为文件名
 MAX_FILENAME_BASE_LENGTH: int = 50
+
+# === 扩展名白名单（审计 P0-3/M7）===
+
+# 从下载直链 URL 后缀提取扩展名时仅采用白名单内的扩展名，
+# 其余（.bat/.exe/.url/.m3u8/.mpd 等）一律拒绝并回退到类型默认值，
+# 封堵“任意文件写原语”的落盘扩展名通道。
+ALLOWED_MEDIA_EXTENSIONS: frozenset[str] = frozenset(
+    {
+        # 视频
+        ".mp4",
+        ".mov",
+        ".mkv",
+        ".webm",
+        ".flv",
+        ".ts",
+        ".m4s",
+        ".avi",
+        # 音频（B 站 DASH 音频流）
+        ".mp3",
+        ".m4a",
+        ".aac",
+        ".wav",
+        ".ogg",
+        # 图片（图集）
+        ".jpg",
+        ".jpeg",
+        ".png",
+        ".webp",
+        ".gif",
+        ".bmp",
+        ".avif",
+    }
+)
