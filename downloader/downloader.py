@@ -1170,6 +1170,7 @@ class Downloader:
                     if first_chunk is None and downloaded_bytes == 0:
                         first_chunk = chunk
                         if self._is_playlist_content(first_chunk):
+                            # 删除由 _stream_to_file 外层 except 完成（句柄先关闭）
                             raise PlaylistContentError("下载内容为 m3u8/HLS 播放列表而非媒体文件")
                     f.write(chunk)
                     downloaded_bytes += len(chunk)
@@ -1193,6 +1194,10 @@ class Downloader:
         except asyncio.CancelledError:
             # 持久化进度后重抛（设计文档 5.4 节）
             self._persist_progress(task_item.id, downloaded_bytes, total_bytes)
+            raise
+        except PlaylistContentError:
+            # 审计 M13/C1：内容为播放列表 → 清理刚创建的 .part（此时文件句柄已关闭）
+            part_path.unlink(missing_ok=True)
             raise
 
         # 最终持久化一次
