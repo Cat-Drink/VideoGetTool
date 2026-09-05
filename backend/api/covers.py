@@ -108,10 +108,12 @@ def _is_blocked_ip(ip: str) -> bool:
     """
     try:
         addr = ipaddress.ip_address(ip)
-    except ValueError:
+    except (ValueError, TypeError):
         return True
-    if addr in _BENCHMARK_NETWORK:
-        return False
+    if isinstance(addr, ipaddress.IPv4Address):
+        # IPv4：仅保留 198.18.x.x 基准测试网段，其余私网/保留段一律拦截
+        if addr in _BENCHMARK_NETWORK:
+            return False
     return (
         addr.is_private
         or addr.is_loopback

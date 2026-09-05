@@ -646,3 +646,111 @@ class TestVerifyCompletedFiles:
         data = resp.json()
         assert data["verified_count"] == 0
         assert data["missing_count"] == 0
+
+
+class TestStartDownloadValidation:
+    """审计 P0-3：download_dir 严格一致校验 + URL scheme 校验。"""
+
+    def _payload(self, **overrides):
+        payload = {
+            "source_type": "single",
+            "items": [
+                {
+                    "aweme_id": "a1",
+                    "type": "video",
+                    "no_watermark_url": "https://example.com/v.mp4",
+                }
+            ],
+        }
+        payload.update(overrides)
+        return payload
+
+    def test_download_dir_mismatch_rejected(self, api_client):
+        """download_dir 与配置目录不一致 → 400（封堵任意路径写）。"""
+        ctx.config_repo.set("download_dir", tempfile.gettempdir())
+        resp = api_client.post(
+            "/api/download/start",
+            json=self._payload(download_dir="C:/Evil/Startup"),
+        )
+        assert resp.status_code == 400
+        assert "下载目录" in resp.json()["detail"]
+
+    def test_download_dir_matching_accepted(self, api_client):
+        """download_dir 与配置目录一致（含尾部分隔符差异）→ 放行。"""
+        base = tempfile.gettempdir()
+        ctx.config_repo.set("download_dir", base)
+        resp = api_client.post(
+            "/api/download/start",
+            json=self._payload(download_dir=base + os.sep),
+        )
+        assert resp.status_code == 200
+
+    def test_missing_config_falls_back_to_default_dir(self, api_client):
+        """配置缺失时回退内置默认目录（订阅流程依赖）。"""
+        ctx.config_repo.set("download_dir", "")
+        resp = api_client.post("/api/download/start", json=self._payload())
+        assert resp.status_code == 200
+
+    def test_non_http_url_rejected(self, api_client):
+        """file:// 或非 http(s) 直链 → 400。"""
+        ctx.config_repo.set("download_dir", tempfile.gettempdir())
+        resp = api_client.post(
+            "/api/download/start",
+            json=self._payload(
+                items=[
+                    {
+                        "aweme_id": "a1",
+                        "type": "video",
+                        "no_watermark_url": "file:///C:/evil.bat",
+                    }
+                ]
+            ),
+        )
+        assert resp.status_code == 400
+        assert "非法下载地址" in resp.json()["detail"]
+
+    def test_invalid_audio_url_rejected(self, api_client):
+        """DASH 音频流地址同样校验。"""
+        ctx.config_repo.set("download_dir", tempfile.gettempdir())
+        resp = api_client.post(
+            "/api/download/start",
+            json=self._payload(
+                items=[
+                    {
+                        "bvid": "BV1xx",
+                        "cid": 1,
+                        "type": "video",
+                        "url": "https://example.com/v.m4s",
+                        "audio_url": "file:///C:/evil.m4s",
+                    }
+                ]
+            ),
+        )
+        assert resp.status_code == 400
+
+
+class TestExtensionWhitelist:
+    """审计 P0-3/M7：_extract_extension 仅采用白名单扩展名。"""
+
+    def test_whitelisted_extensions_adopted(self):
+        from downloader.downloader import Downloader
+
+        assert Downloader._extract_extension("https://cd.com/v.mp4", "video") == ".mp4"
+        assert Downloader._extract_extension("https://cd.com/v.m4s", "video") == ".m4s"
+        assert Downloader._extract_extension("https://cd.com/i.webp", "image_set") == ".webp"
+
+    def test_unsafe_extensions_rejected(self):
+        from downloader.downloader import Downloader
+
+        for ext in (".bat", ".exe", ".url", ".com", ".js", ".m3u8", ".mpd", ".html"):
+            assert (
+                Downloader._extract_extension(f"https://evil.com/x{ext}", "video") == ".mp4"
+            )
+
+    def test_no_suffix_defaults(self):
+        from downloader.downloader import Downloader
+
+        assert Downloader._extract_extension("https://cd.com/video?id=1", "video") == ".mp4"
+        assert (
+            Downloader._extract_extension("https://cd.com/img?id=1", "image_set") == ".jpg"
+        )
