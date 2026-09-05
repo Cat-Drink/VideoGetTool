@@ -1,0 +1,32 @@
+# .gitleaks.toml configuration to allowlist known public test constants
+# These are Bilibili WBI signing keys from the official public implementation
+# See: tests/test_bilibili/test_bilibili.py (lines 94,95,114,115,119,120,121)
+# They are public constants, not actual secrets
+
+[[allowlist]]
+description = "Allowlist Bilibili public WBI img_key test constant"
+regex = '(?i)signer\\._img_key\\s*=\\s*["\']7cd084941338484aae1ad9425b84077c["\']'
+
+[[allowlist]]
+description = "Allowlist Bilibili public WBI sub_key test constant"
+regex = '(?i)signer\\._sub_key\\s*=\\s*["\']4932caff0ff746eab6f01bf08b70ac45["\']'
+
+[[allowlist]]
+description = "Allowlist Bilibili public WBI img_key variable"
+regex = '(?i)img_key\\s*=\\s*["\']7cd084941338484aae1ad9425b84077c["\']'
+
+[[allowlist]]
+description = "Allowlist Bilibili public WBI sub_key variable"
+regex = '(?i)sub_key\\s*=\\s*["\']4932caff0ff746eab6f01bf08b70ac45["\']'
+
+[[allowlist]]
+description = "Allowlist Bilibili public WBI IMG_KEY constant"
+regex = '(?i)IMG_KEY\\s*=\\s*["\']7cd084941338484aae1ad9425b84077c["\']'
+
+[[allowlist]]
+description = "Allowlist Bilibili public WBI SUB_KEY constant"
+regex = '(?i)SUB_KEY\\s*=\\s*["\']4932caff0ff746eab6f01bf08b70ac45["\']'
+
+[[allowlist]]
+description = "Allowlist Bilibili public WBI KNOWN_MIX_KEY constant"
+regex = '(?i)KNOWN_MIX_KEY\\s*=\\s*["\']ea1db124af3c7062474693fa704f4ff8["\']'

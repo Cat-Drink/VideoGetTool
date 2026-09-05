@@ -60,6 +60,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_LICENSE: ""
+        with:
+          uploadArtifacts: false
 
   lint-test:
     name: Lint & Test
