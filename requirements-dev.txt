@@ -1,11 +1,14 @@
 -r requirements.txt
 
-# 代码质量
-ruff
-black
+# 代码质量（版本锁定，审计 M6）
+ruff==0.16.1
+black==26.5.1
 
 # 测试
-pytest
-pytest-asyncio
-pytest-cov
-respx
+pytest==9.1.1
+pytest-asyncio==1.4.0
+pytest-cov==7.1.0
+respx==0.23.1
+
+# CI 安全门禁（审计 S5，见 §6.6）
+pip-audit==2.9.0

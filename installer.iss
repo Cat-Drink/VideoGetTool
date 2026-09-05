@@ -79,9 +79,9 @@ WizardStyle=modern
 DisableProgramGroupPage=yes
 
 [Languages]
-; 简体中文（默认）
-Name: "english"; MessagesFile: "compiler:Default.isl"
-; 英文（备选）
+; 简体中文（默认，需 Inno Setup 6 自带 Languages\ChineseSimplified.isl）
+Name: "chinesesimplified"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
+; 英文（可选）
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]

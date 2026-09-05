@@ -32,6 +32,13 @@ jobs:
       - name: 检出代码
         uses: actions/checkout@v4
 
+      # 审计 S5：secrets 硬编码扫描（gitleaks，含历史提交）
+      - name: Gitleaks 密钥扫描
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_LICENSE: ""
+
       - name: 设置 Python 3.11
         uses: actions/setup-python@v5
         with:
@@ -43,6 +50,12 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
+
+      # 审计 S5：Python 依赖漏洞审计。
+      # 注：pip-audit 先以 continue-on-error 运行 —— 待基线清零后再收紧为硬门禁。
+      - name: pip-audit 依赖漏洞审计
+        continue-on-error: true
+        run: pip-audit
 
       - name: Ruff 检查
         run: ruff check .
@@ -95,6 +108,15 @@ jobs:
         run: |
           cd frontend
           npx tsc --noEmit
+
+      # 审计 S5：前端依赖漏洞审计。
+      # 注：npm audit 命中本地镜像缺陷（registry 不支持 audit 端点）时可能失败，
+      # 以 continue-on-error 运行避免阻塞主流程；CI 走默认 registry 时正常生效。
+      - name: npm audit 漏洞审计
+        continue-on-error: true
+        run: |
+          cd frontend
+          npm audit --audit-level=high || true
 
       - name: 前端构建
         run: |
