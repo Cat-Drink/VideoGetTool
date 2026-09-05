@@ -33,7 +33,7 @@ from crawlers.exceptions import SignError
 _BOGUS_BASE64_TABLE: str = "Dkdpgh4ZKsQB80/Mfvw36XI1R25-WUAlEi7NLboqYTOPuzmFjJnryx9HVGcaStCe="
 
 # canvas 指纹固定值（抖音前端固定常量）
-_CANVAS_CODE: int = 536919696
+_CANVAS_CODE: int = 536919696  # 逆向自抖音前端固定 canvas 指纹值
 
 # RC4 流密码密钥
 # UA 处理用的密钥：对应抖音前端固定字节 [0x00, 0x01, 0x0C]
